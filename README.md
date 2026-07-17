@@ -8,7 +8,9 @@ database.
 ## Prerequisites
 
 - **Node.js** 22.x (see `.nvmrc`) and npm 10+
-- **PocketBase binary** — already included at `apps/pocketbase/pocketbase`.
+- **PocketBase binary** — already included at
+  `.pocketbase-version`
+  `scripts/install-pocketbase.sh`
   If missing, download the matching version (see `.pocketbase-version`) from
   https://pocketbase.io/docs/ and place it there.
 
