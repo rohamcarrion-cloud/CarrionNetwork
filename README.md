@@ -16,7 +16,12 @@ database.
 
 ```bash
 # Clone or export the repository
-git clone <repo> && cd carrion-networks
+git clone git@github.com:rohamcarrion-cloud/CarrionNetwork.git
+cd CarrionNetwork
+
+For wider accessibility, There is the HTTPS instead:
+git clone https://github.com/rohamcarrion-cloud/CarrionNetwork.git
+cd CarrionNetwork
 
 # Install dependencies (installs all workspaces)
 npm install
@@ -61,7 +66,7 @@ On first boot PocketBase will:
 # In a new terminal, from the repository root
 npm run dev
 
-# Frontend: http://localhost:5173 (or the port Vite reports)
+# Frontend: http://localhost:3000 (or the port Vite reports)
 ```
 
 ## Environment Variables
@@ -71,7 +76,7 @@ Create a `.env` file (copied from `.env.example`):
 ```
 VITE_POCKETBASE_URL=http://localhost:8090
 VITE_APP_NAME=Carrion Networks
-VITE_APP_URL=http://localhost:5173
+VITE_APP_URL=http://localhost:3000
 # POCKETBASE_ENCRYPTION_KEY=  # only for existing encrypted pb_data
 ```
 
