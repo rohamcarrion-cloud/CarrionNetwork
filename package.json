@@ -4,10 +4,12 @@
   "private": true,
   "scripts": {
     "setup": "npm install",
-    "dev": "concurrently --kill-others --raw \"npm run dev --prefix apps/web\" \"npm run dev --prefix apps/pocketbase\"",
-    "build": "concurrently --raw \"npm run build --prefix apps/web\"",
-    "start": "concurrently --kill-others --raw \"npm run start --prefix apps/pocketbase\"",
-    "lint": "concurrently --raw \"npm run lint --prefix apps/web\""
+    "dev": "concurrently --kill-others --raw \"npm run dev --workspace=web\" \"npm run dev --workspace=pocketbase-app\"",
+    "dev:web": "npm run dev --workspace=web",
+    "dev:backend": "npm run dev --workspace=pocketbase-app",
+    "build": "npm run build --workspace=web",
+    "start": "npm run start --workspace=pocketbase-app",
+    "lint": "npm run lint --workspace=web"
   },
   "devDependencies": {
     "concurrently": "^10.0.3"
