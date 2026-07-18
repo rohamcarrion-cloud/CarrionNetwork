@@ -7,7 +7,7 @@ development, AI, and education.
 The platform is being developed as a unified environment for podcast creation,
 hosting, RSS distribution, creator management, and professional listening.
 
-> Current release: v0.1.0 — Platform Foundation
+> Current release: v0.1.1 — Platform Foundation
 
 ## Prerequisites
 
