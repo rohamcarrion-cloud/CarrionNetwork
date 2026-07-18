@@ -8,9 +8,7 @@ database.
 ## Prerequisites
 
 - **Node.js** 22.x (see `.nvmrc`) and npm 10+
-- **PocketBase binary** — already included at
-  `.pocketbase-version`
-  `scripts/install-pocketbase.sh`
+- **PocketBase binary** — already included at `.pocketbase-version` and then `scripts/install-pocketbase.sh`
   If missing, download the matching version (see `.pocketbase-version`) from
   https://pocketbase.io/docs/ and place it there.
 
@@ -79,7 +77,7 @@ Create a `.env` file (copied from `.env.example`):
 VITE_POCKETBASE_URL=http://localhost:8090
 VITE_APP_NAME=Carrion Networks
 VITE_APP_URL=http://localhost:3000
-# POCKETBASE_ENCRYPTION_KEY=  # only for existing encrypted pb_data
+# PB_ENCRYPTION_KEY=  # only for existing encrypted pb_data
 ```
 
 See `.env.example` for all available options.
@@ -134,7 +132,7 @@ npm run build   # Build for production
 **"invalid settings db data or missing encryption key"**
 - Occurs when booting an exported/encrypted `pb_data` from Horizon.
 - Fix: `rm -rf apps/pocketbase/pb_data` and let PocketBase create a fresh DB.
-- Or (not recommended for dev): supply `POCKETBASE_ENCRYPTION_KEY`.
+- Or (not recommended for dev): supply `PB_ENCRYPTION_KEY`.
 
 **"Cannot connect to PocketBase"**
 - Ensure PocketBase is running on http://localhost:8090.
