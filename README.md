@@ -1,9 +1,13 @@
 # Carrion Networks
 
-A podcast platform for professional and business networks — React frontend +
-PocketBase backend. This document explains how to run the project locally
-**from a clean environment**, with no dependency on any encrypted production
-database.
+Carrion Networks is a full-stack podcast platform designed for business,
+entrepreneurship, finance, leadership, technology, real estate, career
+development, AI, and education.
+
+The platform is being developed as a unified environment for podcast creation,
+hosting, RSS distribution, creator management, and professional listening.
+
+> Current release: v0.1.0 — Platform Foundation
 
 ## Prerequisites
 
