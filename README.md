@@ -18,19 +18,29 @@ hosting, RSS distribution, creator management, and professional listening.
 
 ## Installation
 
+Clone the repository using SSH:
+
 ```bash
-# Clone or export the repository
 git clone git@github.com:rohamcarrion-cloud/CarrionNetwork.git
 cd CarrionNetwork
+```
 
-For wider accessibility, There is the HTTPS instead:
+Alternatively, clone it using HTTPS:
+
+```bash
 git clone https://github.com/rohamcarrion-cloud/CarrionNetwork.git
 cd CarrionNetwork
+```
 
-# Install dependencies (installs all workspaces)
+Install dependencies for all workspaces:
+
+```bash
 npm install
+```
 
-# Copy the environment template
+Copy the environment template:
+
+```bash
 cp .env.example .env
 ```
 
