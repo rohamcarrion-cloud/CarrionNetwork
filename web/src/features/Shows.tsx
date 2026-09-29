@@ -1,3 +1,4 @@
+import { ShowFeed } from './ShowFeed';
 import { useCallback, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { Radio, ArrowUpRight } from 'lucide-react';
@@ -142,6 +143,11 @@ export function ShowDetail() {
           setSaved(true);
           resource.retry();
         }}
+      />
+      <ShowFeed
+        key={show.updated_at}
+        showId={show.id}
+        onChange={resource.retry}
       />
       <Seasons showId={show.id} owner={show.owner_id === user?.id} />
       <EpisodeList show={show} />

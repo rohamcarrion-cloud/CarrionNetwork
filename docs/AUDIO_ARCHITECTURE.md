@@ -114,6 +114,15 @@ or allow deletion of its source. Republish restores the retained snapshot.
 
 Direct-to-object-storage and resumable uploads should use staged/untrusted objects,
 a finalize/validation step and authorization before making assets selectable.
-Neither is implemented here. Also deferred: RSS generation, directory distribution,
+Neither is implemented here. Also deferred: directory distribution,
 Spotify/Apple integrations, transcoding, waveform generation, normalization,
 transcription, chapters, analytics and monetization.
+
+## RSS enclosures — 007
+
+RSS uses immutable representation MIME/byte length/duration and the retained
+Episode GUID. Its stable MP3 URL alias adds that GUID to the existing public
+representation route; it cannot resolve a GUID not linked to that representation.
+Existing 006 media URLs and Range/HEAD behavior remain supported. No audio is
+copied, normalized or transcoded for RSS. See [RSS architecture](RSS_ARCHITECTURE.md)
+for canonical URL configuration, feed eligibility and caching.

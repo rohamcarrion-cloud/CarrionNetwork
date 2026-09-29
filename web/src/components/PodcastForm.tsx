@@ -127,8 +127,7 @@ export function PodcastForm({
         </label>
         <small>
           Save your changes before publishing. Scheduling records intent;
-          automatic publishing, public feeds and distribution are not available
-          yet.
+          automatic scheduling and directory submission are not available yet.
         </small>
         {kind === 'episode' && (
           <>

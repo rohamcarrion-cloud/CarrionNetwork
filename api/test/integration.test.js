@@ -8,6 +8,7 @@ import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import sharp from 'sharp';
+import { JSDOM } from 'jsdom';
 import { mkdtemp, copyFile, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -51,7 +52,7 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
           timeout: 30_000,
         },
       );
-    await t.test('all six migrations apply on a fresh database', async () => {
+    await t.test('all seven migrations apply on a fresh database', async () => {
       const fresh = `carrion_test_${randomUUID().replaceAll('-', '')}`;
       await admin.query(`CREATE DATABASE "${fresh}"`);
       const freshUrl = new URL(url);
@@ -64,7 +65,7 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
           fileURLToPath(new URL('../migrations', import.meta.url)),
           { log: () => {} },
         );
-        assert.equal(ledger.length, 6);
+        assert.equal(ledger.length, 7);
         assert.equal(
           (await freshClient.query('SELECT * FROM episode_publications'))
             .rowCount,
@@ -200,7 +201,105 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
             ).rowCount,
             0,
           );
+          await writeFile(
+            join(directory, '006_publishable_media.sql'),
+            migration006,
+          );
+          await runMigrations(client, directory, { log: () => {} });
+          const retainedRepresentation = randomUUID();
+          await client.query(
+            `INSERT INTO publishable_media(id,workspace_id,source_media_asset_id,profile,storage_key,mime_type,size_bytes,duration_seconds) VALUES($1,$2,$3,'original-mp3-v1',$4,'audio/mpeg',123,1)`,
+            [retainedRepresentation, userId, audioId, beforeAudio.storage_key],
+          );
+          await client.query(
+            'UPDATE episodes SET cover_asset_id=$1,episode_number=3 WHERE id=$2',
+            [imageId, legacyPublished],
+          );
+          await client.query(
+            `INSERT INTO episode_publications(episode_id,workspace_id,representation_id,guid,title,description,explicit,published_at) SELECT id,workspace_id,$2,guid,title,'Retained description',false,published_at FROM episodes WHERE id=$1`,
+            [legacyPublished, retainedRepresentation],
+          );
+          const retainedPublication = (
+            await client.query(
+              'SELECT * FROM episode_publications WHERE episode_id=$1',
+              [legacyPublished],
+            )
+          ).rows[0];
+          const retainedMedia = (
+            await client.query('SELECT * FROM publishable_media WHERE id=$1', [
+              retainedRepresentation,
+            ])
+          ).rows[0];
+          const migration007 = await readFile(
+            new URL('../migrations/007_podcast_rss.sql', import.meta.url),
+            'utf8',
+          );
+          await writeFile(
+            join(directory, '007_podcast_rss.sql'),
+            migration007 + '\nSELECT fail_007_upgrade();',
+          );
+          await assert.rejects(
+            runMigrations(client, directory, { log: () => {} }),
+            /fail_007_upgrade/,
+          );
+          assert.equal(
+            (await client.query("SELECT to_regclass('public_artwork') AS name"))
+              .rows[0].name,
+            null,
+          );
+          assert.equal(
+            (
+              await client.query(
+                "SELECT * FROM schema_migrations WHERE name='007_podcast_rss.sql'",
+              )
+            ).rowCount,
+            0,
+          );
+          assert.deepEqual(
+            (
+              await client.query(
+                'SELECT * FROM episode_publications WHERE episode_id=$1',
+                [legacyPublished],
+              )
+            ).rows[0],
+            retainedPublication,
+          );
           const output = upgradeLogs.join('\n') + (await migrate()).stdout;
+          const upgradedPublication = (
+            await client.query(
+              'SELECT * FROM episode_publications WHERE episode_id=$1',
+              [legacyPublished],
+            )
+          ).rows[0];
+          for (const key of Object.keys(retainedPublication))
+            assert.deepEqual(
+              upgradedPublication[key],
+              retainedPublication[key],
+            );
+          assert.equal(upgradedPublication.episode_number, 3);
+          assert.equal(upgradedPublication.cover_asset_id, imageId);
+          assert.deepEqual(
+            (
+              await client.query(
+                'SELECT * FROM publishable_media WHERE id=$1',
+                [retainedRepresentation],
+              )
+            ).rows[0],
+            retainedMedia,
+          );
+          const feedIdentity = (
+            await client.query(
+              'SELECT feed_id,feed_enabled FROM shows WHERE id=$1',
+              [showId],
+            )
+          ).rows[0];
+          assert.ok(feedIdentity.feed_id);
+          assert.equal(feedIdentity.feed_enabled, false);
+          assert.equal(
+            (await client.query('SELECT * FROM public_artwork')).rowCount,
+            0,
+          );
+
           assert.deepEqual(
             (
               await client.query('SELECT * FROM media_assets WHERE id=$1', [
@@ -211,7 +310,7 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
           );
           assert.equal(
             (await client.query('SELECT * FROM episode_publications')).rowCount,
-            0,
+            1,
           );
           assert.equal(
             (
@@ -321,6 +420,7 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
               '004_media_assets.sql',
               '005_episode_audio.sql',
               '006_publishable_media.sql',
+              '007_podcast_rss.sql',
             ],
           );
           assert.ok(initial[0].applied_at instanceof Date);
@@ -366,12 +466,18 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
             ),
             join(directory, '006_publishable_media.sql'),
           );
-          await writeFile(
-            join(directory, '007_probe.sql'),
-            'CREATE TABLE migration_probe (id integer PRIMARY KEY);',
+          await copyFile(
+            fileURLToPath(
+              new URL('../migrations/007_podcast_rss.sql', import.meta.url),
+            ),
+            join(directory, '007_podcast_rss.sql'),
           );
           await writeFile(
             join(directory, '008_probe.sql'),
+            'CREATE TABLE migration_probe (id integer PRIMARY KEY);',
+          );
+          await writeFile(
+            join(directory, '009_probe.sql'),
             'INSERT INTO migration_probe VALUES (1);',
           );
           await assert.rejects(
@@ -394,8 +500,9 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
               '004_media_assets.sql',
               '005_episode_audio.sql',
               '006_publishable_media.sql',
-              '007_probe.sql',
+              '007_podcast_rss.sql',
               '008_probe.sql',
+              '009_probe.sql',
             ],
           );
           assert.equal(
@@ -408,14 +515,14 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
             1,
           );
           await writeFile(
-            join(directory, '009_failure.sql'),
+            join(directory, '010_failure.sql'),
             'CREATE TABLE rollback_probe (id integer); SELECT missing_migration_function();',
           );
           await assert.rejects(
             runMigrations(client, directory, options),
             /missing_migration_function/,
           );
-          assert.ok(!logs.includes('Applied 009_failure.sql'));
+          assert.ok(!logs.includes('Applied 010_failure.sql'));
           await client.end();
           client = await connect();
           assert.equal(
@@ -429,13 +536,13 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
           assert.equal(
             (
               await client.query(
-                "SELECT * FROM public.schema_migrations WHERE name='009_failure.sql'",
+                "SELECT * FROM public.schema_migrations WHERE name='010_failure.sql'",
               )
             ).rowCount,
             0,
           );
           await writeFile(
-            join(directory, '009_failure.sql'),
+            join(directory, '010_failure.sql'),
             'CREATE TABLE rollback_probe (id integer);',
           );
           await runMigrations(client, directory, options);
@@ -446,9 +553,9 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
                 checkOnly: true,
               })
             ).length,
-            9,
+            10,
           );
-          await rm(join(directory, '009_failure.sql'));
+          await rm(join(directory, '010_failure.sql'));
           await assert.rejects(
             runMigrations(client, directory, { ...options, checkOnly: true }),
             /Applied migration files missing/,
@@ -464,6 +571,7 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');
     const base = `http://127.0.0.1:${server.address().port}`;
+    process.env.PUBLIC_BASE_URL = base;
     async function request(method, path, { token, body, status = 200 } = {}) {
       const response = await fetch(base + path, {
         method,
@@ -1685,6 +1793,438 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
           status: 422,
         });
         await pool.query('DELETE FROM publishable_media WHERE id=$1', [unused]);
+      },
+    );
+    await t.test(
+      'RSS opt-in, XML, caching, artwork isolation and publication lifecycle',
+      async () => {
+        const dom = new JSDOM('');
+        const parse = (xml) => {
+          const doc = new dom.window.DOMParser().parseFromString(
+            xml,
+            'application/xml',
+          );
+          assert.equal(doc.querySelector('parsererror'), null);
+          return doc;
+        };
+        const s = (
+          await request('POST', '/shows', {
+            token,
+            status: 201,
+            body: { title: 'RSS & <Voices>' },
+          })
+        ).show;
+        const path = `/feeds/${s.feed_id}.xml`;
+        await request('GET', path, { status: 404 });
+        await request('GET', `/shows/${s.id}/feed`, { status: 401 });
+        await request('POST', `/shows/${s.id}/feed`, {
+          token: outsiderToken,
+          status: 404,
+        });
+        const missing = await request('POST', `/shows/${s.id}/feed`, {
+          token,
+          status: 422,
+        });
+        assert.ok(missing.issues.some((i) => i.field === 'cover_asset_id'));
+        async function uploadImage(
+          size = 1400,
+          auth = token,
+          workspace = owner.id,
+          alpha = false,
+        ) {
+          const bytes = await sharp({
+            create: {
+              width: size,
+              height: size,
+              channels: alpha ? 4 : 3,
+              background: 'purple',
+            },
+          })
+            .png()
+            .toBuffer();
+          const res = await fetch(
+            `${base}/workspaces/${workspace}/media?filename=cover.png`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${auth}`,
+                'Content-Type': 'image/png',
+              },
+              body: bytes,
+            },
+          );
+          assert.equal(res.status, 201);
+          return (await res.json()).asset;
+        }
+        const cover = await uploadImage();
+        const episodeCover = await uploadImage();
+        const foreignCover = await uploadImage(
+          1400,
+          outsiderToken,
+          outsider.id,
+        );
+        await request('PATCH', `/shows/${s.id}`, {
+          token,
+          status: 400,
+          body: { cover_asset_id: foreignCover.id },
+        });
+        const metadata = {
+          description: 'Conversations & ideas',
+          author: 'A creator',
+          category: 'Society & Culture',
+          website_url: 'https://example.test/podcast?a=1&b=2',
+          language: 'en-US',
+          copyright: '© Creator',
+          cover_asset_id: cover.id,
+        };
+        await request('PATCH', `/shows/${s.id}`, { token, body: metadata });
+        const pre = await request('GET', `/shows/${s.id}/feed`, { token });
+        assert.equal(pre.ready, true);
+        assert.equal(pre.enabled, false);
+        assert.equal(pre.feed_url, base + path);
+        const enabled = await request('POST', `/shows/${s.id}/feed`, { token });
+        assert.equal(enabled.enabled, true);
+        assert.equal(enabled.published_episodes, 0);
+        const emptyResponse = await fetch(base + path, {
+          headers: { Host: 'untrusted.example' },
+        });
+        assert.equal(emptyResponse.status, 200);
+        assert.match(
+          emptyResponse.headers.get('content-type'),
+          /application\/rss\+xml; charset=utf-8/,
+        );
+        const emptyXml = await emptyResponse.text();
+        const empty = parse(emptyXml);
+        assert.equal(empty.querySelectorAll('item').length, 0);
+        assert.equal(
+          empty.querySelector('channel > title').textContent,
+          s.title,
+        );
+        assert.equal(
+          empty.querySelector('channel > link').textContent,
+          metadata.website_url,
+        );
+        assert.equal(empty.querySelector('language').textContent, 'en-US');
+        assert.equal(empty.querySelector('copyright').textContent, '© Creator');
+        assert.ok(!emptyXml.includes('untrusted.example'));
+        for (const privateValue of [
+          owner.id,
+          s.id,
+          cover.id,
+          cover.storage_key,
+          '/workspaces/',
+          'password_hash',
+        ])
+          assert.ok(!emptyXml.includes(privateValue));
+        await request('POST', `/shows/${s.id}/feed`, { token });
+        assert.equal(await (await fetch(base + path)).text(), emptyXml);
+        const artUrl = empty
+          .getElementsByTagNameNS(
+            'http://www.itunes.com/dtds/podcast-1.0.dtd',
+            'image',
+          )[0]
+          .getAttribute('href');
+        const artHead = await fetch(artUrl, { method: 'HEAD' });
+        assert.equal(artHead.status, 200);
+        assert.equal(artHead.headers.get('content-type'), 'image/png');
+        assert.equal(artHead.headers.get('content-length'), cover.size_bytes);
+        assert.ok(artHead.headers.get('last-modified'));
+        assert.equal(
+          (await fetch(artUrl, { headers: { Range: 'bytes=0-9' } })).status,
+          206,
+        );
+        await request('GET', `/public/artwork/${cover.id}.png`, {
+          status: 404,
+        });
+        await request(
+          'GET',
+          `/workspaces/${owner.id}/media/${cover.id}/content`,
+          { status: 401 },
+        );
+        await request('GET', `/public/artwork/${foreignCover.id}.png`, {
+          status: 404,
+        });
+        const head = await fetch(base + path, { method: 'HEAD' });
+        assert.equal(head.status, 200);
+        assert.equal((await head.arrayBuffer()).byteLength, 0);
+        assert.equal(
+          head.headers.get('etag'),
+          emptyResponse.headers.get('etag'),
+        );
+        assert.equal(
+          head.headers.get('content-length'),
+          String(Buffer.byteLength(emptyXml)),
+        );
+        const cached = await fetch(base + path, {
+          headers: { 'If-None-Match': `W/${head.headers.get('etag')}` },
+        });
+        assert.equal(cached.status, 304);
+        assert.equal(await cached.text(), '');
+        assert.equal(
+          (
+            await fetch(base + path, {
+              headers: {
+                'If-None-Match': '"not-this-feed"',
+                'If-Modified-Since': head.headers.get('last-modified'),
+              },
+            })
+          ).status,
+          200,
+        );
+        const audio = await uploadAudio();
+        const season = (
+          await request('POST', `/shows/${s.id}/seasons`, {
+            token,
+            status: 201,
+            body: { title: 'Season 2', season_number: 2 },
+          })
+        ).season;
+        const ep = (
+          await request('POST', `/shows/${s.id}/episodes`, {
+            token,
+            status: 201,
+            body: {
+              title: 'Episode & <One>',
+              description: 'Description with "quotes" ]]> and \u0001',
+              primary_audio_asset_id: audio.id,
+              cover_asset_id: episodeCover.id,
+              episode_number: 5,
+              episode_type: 'bonus',
+              season_id: season.id,
+            },
+          })
+        ).episode;
+        assert.equal(await (await fetch(base + path)).text(), emptyXml);
+        const p = (
+          await request('POST', `/episodes/${ep.id}/publish`, { token })
+        ).publication;
+        const publishedResponse = await fetch(base + path);
+        const publishedXml = await publishedResponse.text();
+        const doc = parse(publishedXml);
+        assert.notEqual(
+          publishedResponse.headers.get('etag'),
+          head.headers.get('etag'),
+        );
+        const item = doc.querySelector('item');
+        assert.ok(item);
+        assert.equal(doc.querySelectorAll('item').length, 1);
+        assert.equal(item.querySelector('title').textContent, p.title);
+        assert.equal(item.querySelector('guid').textContent, ep.guid);
+        assert.equal(
+          item.querySelector('guid').getAttribute('isPermaLink'),
+          'false',
+        );
+        assert.equal(
+          item.getElementsByTagNameNS(
+            'http://www.itunes.com/dtds/podcast-1.0.dtd',
+            'episode',
+          )[0].textContent,
+          '5',
+        );
+        assert.equal(
+          item.getElementsByTagNameNS(
+            'http://www.itunes.com/dtds/podcast-1.0.dtd',
+            'season',
+          )[0].textContent,
+          '2',
+        );
+        assert.equal(
+          item.getElementsByTagNameNS(
+            'http://www.itunes.com/dtds/podcast-1.0.dtd',
+            'episodeType',
+          )[0].textContent,
+          'bonus',
+        );
+        const enclosure = item.querySelector('enclosure');
+        const enclosureUrl = enclosure.getAttribute('url');
+        assert.equal(
+          enclosureUrl,
+          `${base}/public/media/${p.representation_id}/${ep.guid}.mp3`,
+        );
+        assert.equal(enclosure.getAttribute('length'), audio.size_bytes);
+        assert.equal(enclosure.getAttribute('type'), 'audio/mpeg');
+        assert.equal(
+          (await fetch(enclosureUrl, { method: 'HEAD' })).status,
+          200,
+        );
+        const range = await fetch(enclosureUrl, {
+          headers: { Range: 'bytes=0-9' },
+        });
+        assert.equal(range.status, 206);
+        assert.deepEqual(
+          Buffer.from(await range.arrayBuffer()),
+          silentMp3().subarray(0, 10),
+        );
+        await request(
+          'GET',
+          `/public/media/${p.representation_id}/${randomUUID()}.mp3`,
+          { status: 404 },
+        );
+        const episodeArt = item
+          .getElementsByTagNameNS(
+            'http://www.itunes.com/dtds/podcast-1.0.dtd',
+            'image',
+          )[0]
+          .getAttribute('href');
+        assert.notEqual(episodeArt, artUrl);
+        assert.equal((await fetch(episodeArt)).status, 200);
+        // Draft changes cannot silently change published RSS metadata or URLs.
+        await request('PATCH', `/episodes/${ep.id}`, {
+          token,
+          body: {
+            title: 'Unpublished edits',
+            episode_number: 8,
+            cover_asset_id: null,
+          },
+        });
+        assert.equal(await (await fetch(base + path)).text(), publishedXml);
+        await request('POST', `/episodes/${ep.id}/unpublish`, { token });
+        const withdrawn = await fetch(base + path, {
+          headers: { 'If-None-Match': publishedResponse.headers.get('etag') },
+        });
+        assert.equal(withdrawn.status, 200);
+        assert.equal(
+          parse(await withdrawn.text()).querySelectorAll('item').length,
+          0,
+        );
+        assert.equal(
+          (await fetch(enclosureUrl, { method: 'HEAD' })).status,
+          200,
+        );
+        await request('POST', `/episodes/${ep.id}/publish`, { token });
+        const restored = parse(await (await fetch(base + path)).text());
+        assert.equal(restored.querySelector('guid').textContent, ep.guid);
+        assert.equal(
+          restored.querySelector('enclosure').getAttribute('url'),
+          enclosureUrl,
+        );
+        // Two Episodes can share bytes without duplicate enclosure URLs.
+        const second = (
+          await request('POST', `/shows/${s.id}/episodes`, {
+            token,
+            status: 201,
+            body: {
+              title: 'Second',
+              description: 'Second description',
+              primary_audio_asset_id: audio.id,
+            },
+          })
+        ).episode;
+        await request('POST', `/episodes/${second.id}/publish`, { token });
+        const shared = parse(await (await fetch(base + path)).text());
+        const urls = [...shared.querySelectorAll('enclosure')].map((e) =>
+          e.getAttribute('url'),
+        );
+        assert.equal(new Set(urls).size, 2);
+        assert.ok(urls.every((u) => u.includes(p.representation_id)));
+        assert.equal(
+          shared
+            .querySelectorAll('item')[0]
+            .getElementsByTagNameNS(
+              'http://www.itunes.com/dtds/podcast-1.0.dtd',
+              'image',
+            ).length,
+          0,
+        );
+        await request('PATCH', `/shows/${s.id}`, {
+          token,
+          body: { title: 'Renamed Show', slug: 'new-slug' },
+        });
+        assert.equal(
+          (await request('GET', `/shows/${s.id}/feed`, { token })).feed_url,
+          base + path,
+        );
+        await assert.rejects(
+          pool.query('UPDATE shows SET feed_id=$1 WHERE id=$2', [
+            randomUUID(),
+            s.id,
+          ]),
+          { code: '23514' },
+        );
+        await request('PATCH', `/shows/${s.id}`, {
+          token,
+          body: { status: 'archived' },
+        });
+        await request('GET', path, { status: 404 });
+        await request('PATCH', `/shows/${s.id}`, {
+          token,
+          body: { status: 'published' },
+        });
+        assert.equal((await fetch(base + path)).status, 200);
+        await request('PATCH', `/shows/${s.id}`, {
+          token,
+          status: 422,
+          body: { category: 'Not a category' },
+        });
+        const small = await uploadImage(32);
+        const optional = (
+          await request('POST', `/shows/${s.id}/episodes`, {
+            token,
+            status: 201,
+            body: {
+              title: 'Optional cover',
+              description: 'Fallback cover',
+              cover_asset_id: small.id,
+              primary_audio_asset_id: audio.id,
+            },
+          })
+        ).episode;
+        await request('POST', `/episodes/${optional.id}/publish`, { token });
+        const warned = await request('GET', `/shows/${s.id}/feed`, { token });
+        assert.equal(warned.ready, true);
+        assert.ok(
+          warned.warnings.some(
+            (w) => w.field === `episode.${optional.guid}.artwork`,
+          ),
+        );
+        const fallbackItem = [
+          ...parse(await (await fetch(base + path)).text()).querySelectorAll(
+            'item',
+          ),
+        ].find((i) => i.querySelector('guid').textContent === optional.guid);
+        assert.equal(
+          fallbackItem.getElementsByTagNameNS(
+            'http://www.itunes.com/dtds/podcast-1.0.dtd',
+            'image',
+          ).length,
+          0,
+        );
+        assert.equal(
+          (
+            await pool.query(
+              'SELECT * FROM public_artwork WHERE source_media_asset_id=$1',
+              [small.id],
+            )
+          ).rowCount,
+          0,
+        );
+
+        await request('PATCH', `/shows/${s.id}`, {
+          token,
+          status: 422,
+          body: { cover_asset_id: small.id },
+        });
+        const transparent = await uploadImage(1400, token, owner.id, true);
+        await request('PATCH', `/shows/${s.id}`, {
+          token,
+          status: 422,
+          body: { cover_asset_id: transparent.id },
+        });
+        await assert.rejects(
+          pool.query(
+            'DELETE FROM public_artwork WHERE source_media_asset_id=$1',
+            [cover.id],
+          ),
+          { code: '23514' },
+        );
+        await assert.rejects(
+          pool.query(
+            `INSERT INTO public_artwork(id,workspace_id,source_media_asset_id,storage_key,mime_type,size_bytes,width,height) VALUES($1,$2,$3,$4,'image/png',100,1400,1400)`,
+            [randomUUID(), owner.id, foreignCover.id, foreignCover.storage_key],
+          ),
+          { code: '23503' },
+        );
+        dom.window.close();
       },
     );
     await t.test(

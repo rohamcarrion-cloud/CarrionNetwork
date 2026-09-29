@@ -85,3 +85,12 @@ export interface PublicationState {
     media_url: string;
   };
 }
+
+export interface FeedState {
+  warnings?: Array<{ field: string; message: string }>;
+  feed_url: string | null;
+  enabled: boolean;
+  ready: boolean;
+  issues: Array<{ field: string; message: string }>;
+  published_episodes: number;
+}

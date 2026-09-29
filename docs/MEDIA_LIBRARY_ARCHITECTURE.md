@@ -114,3 +114,12 @@ arbitrary Library IDs and original storage keys cannot resolve publicly. See
 [Publishing architecture](PUBLISHING_ARCHITECTURE.md). Never garbage-collect an
 object solely because one reference disappeared; check original and representation
 references. There is no automatic representation/object garbage collection today.
+
+## Public RSS artwork — 007
+
+Enabling a Show feed or saving/publishing into an enabled feed can create explicit
+`public_artwork` representations for suitable selected images. The independent
+UUID and matching `.png`/`.jpg` URL expose only that representation. There is no
+public Library listing or original-content bypass. Existing artwork URLs and source
+references remain protected after replacement or archival. No new Library records
+or image conversions are created. See [RSS architecture](RSS_ARCHITECTURE.md).

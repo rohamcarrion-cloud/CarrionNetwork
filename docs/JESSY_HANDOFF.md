@@ -1,6 +1,6 @@
 # Carrion Network handoff
 
-## Current milestone: 006 — Publishable Media & Publishing Foundation
+## Current milestone: 007 — RSS Feed & Public Podcast Publishing
 
 The manually accepted Creator Studio baseline (registration, login, show and
 episode creation) has evolved into a workspace/show/optional-season/episode model.
@@ -25,7 +25,7 @@ Start PostgreSQL, run `npm run db:migrate` and `npm run db:check`, then run
 - Studio show/episode editors, lifecycle controls, optional season management,
   show selection, status filters, and API error handling.
 - Migrations `002_podcast_domain.sql` and `003_publication_history.sql`; `001`
-  remains untouched. `004_media_assets.sql` adds the Media Library; `005_episode_audio.sql` adds audio; `006_publishable_media.sql` adds representations and snapshots; future migrations begin at `007`.
+  remains untouched. `004_media_assets.sql` adds the Media Library; `005_episode_audio.sql` adds audio; `006_publishable_media.sql` adds representations and snapshots; `007_podcast_rss.sql` adds feeds and public artwork; future migrations begin at `008`.
 
 See [VERIFICATION](VERIFICATION.md) for native Mac gate results. The Mac checkout
 of `rohamcarrion-cloud/CarrionNetwork` is the primary environment. Start from a clean,
@@ -58,7 +58,7 @@ import, not exposed as verified new images.
 
 ## Next boundaries
 
-No audio processing, RSS, distribution, analytics, or monetization is implemented.
+No audio processing, directory distribution, analytics, or monetization is implemented.
 Separate public GET/HEAD/Range delivery is implemented for retained ready publications. A scheduled status does not start a job; published
 is editorial state, not proof of delivery. Plan the next milestone explicitly.
 
@@ -67,8 +67,7 @@ episode artwork, primary episode audio, and other creator assets. Image covers n
 filesystem storage adapter; add separate contracts for future asset types.
 Do not store image/audio blobs on shows or episodes. Preserve episode GUIDs.
 
-Before public RSS delivery, add feed-specific validation/settings and canonical
-HTTPS URLs. Later scheduling/distribution need transactional jobs, destination state
+Public RSS now uses validated metadata and configured canonical URLs. Later scheduling/distribution need transactional jobs, destination state
 and external retry/reconciliation semantics. Current synchronous publishing is retry-safe. Keep delivery state separate from editorial status. Workspace
 membership/invitations and ownership transfer need explicit migrations and grants;
 current show memberships must not silently grant workspace-wide access.
@@ -92,5 +91,28 @@ previews use authenticated downloads and temporary blob URLs.
 
 Original assets must not be permanently coupled to public RSS enclosures. Milestone 006 now implements
 separate publishable representations and public delivery; processing remains future work.
-RSS, distribution, processing, transcripts, chapters, analytics and monetization
+Directory distribution, processing, transcripts, chapters, analytics and monetization
 remain deferred. See [Verification](VERIFICATION.md) for milestone gate results.
+
+## RSS publishing handoff — 007
+
+Read [RSS architecture](RSS_ARCHITECTURE.md) before extending feeds. `PUBLIC_BASE_URL`
+is now operational: use your canonical HTTPS API base, with any proxy prefix.
+Loopback HTTP remains supported for local development; do not use localhost URLs
+for directory submission. The new Show RSS section reports readiness, reserved
+stable URL, Copy/View controls and explicit Enable RSS. Saving an enabled Show
+updates public channel metadata and validates its artwork. Archived Shows return
+404; empty feeds are valid. No existing Show is enabled by migration.
+
+Feed items use retained publication snapshots. New number/season/type/cover fields
+are captured at publishing; existing 006 snapshots gain upgrade-time values only
+for these new fields. Original snapshot values and public audio identities survive.
+RSS uses a GUID-specific MP3 alias of the existing representation route so shared
+bytes do not produce duplicate enclosure URLs. Private Library routes remain private.
+Public artwork is explicit and retained; optional invalid Episode art is omitted
+with a warning. Show artwork must meet the documented JPEG/PNG/size/RGB policy.
+
+Current namespace scope is RSS 2.0 + iTunes + Atom self-link. ETags support 304;
+unchanged polls do not change lastBuildDate. Next work should explicitly choose
+between feed extensions, publication editions, directory submission or operational
+hardening. Do not infer authorization for directory integrations from RSS publishing.

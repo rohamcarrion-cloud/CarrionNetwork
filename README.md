@@ -11,11 +11,11 @@ support podcast metadata, optional seasons, and editorial lifecycle management. 
 capabilities; they do not display fabricated analytics or pretend to publish.
 Settings displays the current creator profile and API connection health.
 
-**Milestone 006 — Publishable Media & Publishing Foundation:** private originals,
-immutable publishable representations, deliberate publishing, retained publication
-snapshots, and separate public MP3 GET/HEAD/Range delivery are implemented.
-See [Publishing architecture](docs/PUBLISHING_ARCHITECTURE.md) and
-[verification](docs/VERIFICATION.md). This Mac is the primary development environment.
+**Milestone 007 — RSS Feed & Public Podcast Publishing:** each Show has a stable
+feed identity. Studio can enable a public RSS feed of published Episode snapshots,
+with safe public artwork and existing MP3 representations. Feed publishing is
+separate from directory submission. See [RSS architecture](docs/RSS_ARCHITECTURE.md)
+and [verification](docs/VERIFICATION.md). This Mac is the primary environment.
 
 ## Local setup
 
@@ -49,6 +49,7 @@ The environment files above are created only if missing:
 | --- | --- | --- |
 | `.env` | `DATABASE_URL` | API/application migration connection; keep secret. |
 | `.env` | `MEDIA_STORAGE_DIR` | Private original and representation storage directory, default `./var/media`; back up with the database. |
+| `.env` | `PUBLIC_BASE_URL` | Canonical API delivery base for RSS/artwork/enclosures; HTTPS outside loopback, include `/api` if your public proxy uses it. |
 | `.env` | `PORT` | API port, default 3010. |
 | `.env` | `WEB_ORIGIN` | Exact allowed frontend origin, default `http://localhost:5173`. |
 | `web/.env` | `VITE_API_URL` | Public API base path, default `/api`; never include secrets. |
@@ -113,7 +114,7 @@ docker compose exec -T postgres psql -U carrion -d carrion_network \
 
 The earlier “0 rows” result was from the separate query for leftover temporary
 test databases; the ledger query returned `001_foundation.sql`. The current ledger has `001_foundation.sql`, `002_podcast_domain.sql`, and
-`003_publication_history.sql`, plus `004_media_assets.sql`, `005_episode_audio.sql` and `006_publishable_media.sql`. New migrations start at `007_description.sql`.
+`003_publication_history.sql`, plus `004_media_assets.sql`, `005_episode_audio.sql`, `006_publishable_media.sql` and `007_podcast_rss.sql`. New migrations start at `008_description.sql`.
 Keep names zero-padded and ordered, keep applied files immutable, and never put
 `BEGIN`/`COMMIT` in them. The runner owns each transaction and reports “Applied”
 only after SQL and its tracking row commit together. See the regression coverage
@@ -173,7 +174,7 @@ Only never-published drafts can be deleted; shows containing episodes must be
 archived or emptied first. Scheduling records editorial intent and runs no background job. Episode publication
 uses `POST /episodes/:id/publish`, with saved podcast metadata and valid MP3 audio.
 Unpublish archives the Episode and preserves existing media URLs; Republish restores
-the first snapshot. Later Episode edits do not overwrite that snapshot. RSS is not implemented.
+the first snapshot. Later Episode edits do not overwrite that snapshot.
 
 Media Library supports private JPEG/PNG/WebP and MP3 uploads, filtered/paginated browsing, previews,
 alt text and safe deletion. Shows and episodes select reusable workspace images;
@@ -192,8 +193,16 @@ The Episode editor displays publishing readiness, validation errors and publicat
 state. Add Show author/category/description, Episode description, attach MP3, save,
 then Publish. `GET /episodes/:id/publication` reports readiness; public URLs resolve
 only explicitly published representations.
-RSS, audio processing, delivery scheduling, distribution, analytics and monetization
-remain future milestones.
+To enable RSS, add a Show website URL, a supported top-level podcast category, and
+square RGB JPEG/PNG Show artwork (1400–3000 pixels, no transparency). Save, then
+use **Enable RSS** in the Show's RSS publishing section. Copy/View Feed exposes
+`PUBLIC_BASE_URL/feeds/:stable-UUID.xml`. Empty feeds are allowed. Episode Publish,
+Unpublish and Republish automatically update inclusion; GUID and enclosure identity
+remain stable. Optional unsuitable Episode artwork is omitted with a warning.
+Archiving the Show hides its feed; existing media URLs remain available.
+
+Audio processing, automatic scheduling, directory submission, analytics and
+monetization remain future milestones. No Apple or Spotify API is integrated.
 
 The Horizons material in `docs/` supplies brand and product reference only.
 The studio reuses its dark violet/lavender palette with a new architecture;

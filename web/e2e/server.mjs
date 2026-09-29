@@ -1,3 +1,4 @@
+import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
@@ -20,6 +21,7 @@ let created = false;
 let server;
 let pool;
 let closing = false;
+const connections = new Set();
 async function cleanup() {
   if (closing) return;
   closing = true;
@@ -29,9 +31,12 @@ async function cleanup() {
         server.close(resolve);
         server.closeAllConnections();
       });
+    // pg-pool may finish draining before every socket emits end. Wait before DROP.
+    const disconnected = [...connections].map((client) => once(client, 'end'));
     await pool?.end();
+    await Promise.all(disconnected);
     await rm(mediaDirectory, { recursive: true, force: true });
-    if (created) await admin.query(`DROP DATABASE "${database}" WITH (FORCE)`);
+    if (created) await admin.query(`DROP DATABASE "${database}"`);
   } finally {
     await admin.end();
   }
@@ -48,6 +53,7 @@ try {
   url.pathname = `/${database}`;
   process.env.DATABASE_URL = url.href;
   process.env.WEB_ORIGIN = 'http://127.0.0.1:5174';
+  process.env.PUBLIC_BASE_URL = 'http://127.0.0.1:5174/api';
   const client = new pg.Client({ connectionString: url.href });
   await client.connect();
   try {
@@ -60,6 +66,10 @@ try {
   }
   ({ server } = await import('../../api/src/server.js'));
   ({ pool } = await import('../../api/src/db.js'));
+  pool.on('connect', (client) => {
+    connections.add(client);
+    client.once('end', () => connections.delete(client));
+  });
   server.on('error', async (error) => {
     console.error(error.message);
     await cleanup();

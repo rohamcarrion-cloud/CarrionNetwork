@@ -1,3 +1,4 @@
+import { prepareFeed } from './feeds.js';
 import { randomUUID } from 'node:crypto';
 import { pool, query } from './db.js';
 import { permission } from './domain.js';
@@ -173,8 +174,8 @@ export async function publish(id, user, unpublish = false) {
             },
           ]);
         await q(
-          `INSERT INTO episode_publications(episode_id,workspace_id,representation_id,guid,title,description,explicit,published_at)
-          VALUES($1,$2,$3,$4,$5,$6,$7,COALESCE($8,now()))`,
+          `INSERT INTO episode_publications(episode_id,workspace_id,representation_id,guid,title,description,explicit,published_at,episode_number,season_number,episode_type,cover_asset_id)
+          VALUES($1,$2,$3,$4,$5,$6,$7,COALESCE($8,now()),$9,(SELECT season_number FROM seasons WHERE id=$10),$11,$12)`,
           [
             id,
             episode.workspace_id,
@@ -184,6 +185,10 @@ export async function publish(id, user, unpublish = false) {
             episode.description,
             episode.explicit ?? state.show.explicit,
             episode.published_at,
+            episode.episode_number,
+            episode.season_id,
+            episode.episode_type,
+            episode.cover_asset_id,
           ],
         );
       } else {
@@ -197,6 +202,10 @@ export async function publish(id, user, unpublish = false) {
         [id],
       );
     }
+    const show = (await q('SELECT * FROM shows WHERE id=$1', [episode.show_id]))
+      .rows[0];
+    if (!unpublish && show.feed_enabled && show.status === 'published')
+      await prepareFeed(q, show);
     const updated = (await q('SELECT * FROM episodes WHERE id=$1', [id]))
       .rows[0];
     const { publication, issues, ready } = await inspect(q, updated);
@@ -209,12 +218,12 @@ export async function publish(id, user, unpublish = false) {
     client.release();
   }
 }
-export async function publicMedia(id) {
+export async function publicMedia(id, guid = null) {
   const row = (
     await query(
       `SELECT r.* FROM publishable_media r WHERE r.id=$1 AND r.state='ready'
-    AND EXISTS (SELECT 1 FROM episode_publications p WHERE p.representation_id=r.id)`,
-      [id],
+    AND EXISTS (SELECT 1 FROM episode_publications p WHERE p.representation_id=r.id AND ($2::uuid IS NULL OR p.guid=$2))`,
+      [id, guid],
     )
   ).rows[0];
   if (!row) fail(404, 'Public media not found');

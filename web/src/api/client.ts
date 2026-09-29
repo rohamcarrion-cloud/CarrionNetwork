@@ -1,4 +1,4 @@
-import type { PublicationState } from './types';
+import type { FeedState, PublicationState } from './types';
 import type {
   MediaAsset,
   Credentials,
@@ -174,6 +174,12 @@ export function createApi(
     shows: (signal?: AbortSignal) => all<Show>('/shows', signal),
     show: (id: string, signal?: AbortSignal) =>
       request<{ show: Show }>(`/shows/${encodeURIComponent(id)}`, { signal }),
+    feed: (id: string, signal?: AbortSignal) =>
+      request<FeedState>(`/shows/${encodeURIComponent(id)}/feed`, { signal }),
+    enableFeed: (id: string) =>
+      request<FeedState>(`/shows/${encodeURIComponent(id)}/feed`, {
+        method: 'POST',
+      }),
     createShow: (body: PodcastInput) =>
       request<{ show: Show }>('/shows', { method: 'POST', body }),
     updateShow: (id: string, body: PodcastInput) =>

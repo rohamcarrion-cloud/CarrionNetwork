@@ -70,8 +70,8 @@ Editorial status and media readiness are separate. Milestone 006 adds explicit
 publishing and retained snapshots; see [Publishing architecture](PUBLISHING_ARCHITECTURE.md).
 Generic PATCH cannot transition an Episode to published. Unpublish archives and
 withdraws discovery eligibility; Republish restores the same snapshot and audio.
-Existing media URLs remain usable. There is no scheduler, public episode listing,
-RSS or directory submission. A scheduled time passing does not publish automatically.
+Existing media URLs remain usable. Milestone 007 adds opt-in public Show RSS feeds.
+There is no scheduler, public Episode HTML page or directory submission. A scheduled time passing does not publish automatically.
 
 Only never-published drafts may be permanently deleted. A show with episodes
 cannot be deleted; the database restricts the relationship. Empty seasons and
@@ -140,7 +140,7 @@ referencing source/derived assets. A show has a feed configuration resource;
 distribution destinations and per-episode publication attempts belong in separate
 child tables with provider IDs, timestamps, retries, and errors. A stable GUID
 survives republishing and artwork changes. Analytics should retain episode identity
-across archives. Audio processing, RSS, distribution, analytics, and monetization
+across archives. Audio processing, directory distribution, analytics, and monetization
 remain future milestones.
 
 ## Migrations
@@ -149,9 +149,20 @@ remain future milestones.
 protects publication history. `004` upgrades media metadata and adds image covers.
 `005` adds original MP3 assets and primary Episode audio.
 `006` adds publishable representations and retained publication snapshots.
-Applied migrations are immutable; the next change uses `007_...sql`. The existing runner wraps each file and its ledger insertion
+Applied migrations are immutable; `007` adds feed identities, explicit artwork representations and snapshot feed fields;
+the next change uses `008_...sql`. The existing runner wraps each file and its ledger insertion
 in one transaction, using a session advisory lock. Failure rolls back that file;
 already committed earlier files remain applied. There are no automatic destructive
 down migrations. Production recovery requires a reviewed forward repair or a tested
 backup restore. Integration probes verify rollback, repaired retries, persistence
 across connections, ordered application, and no-op reruns.
+
+## Show feed identity and snapshot metadata
+
+`shows.feed_id` is a permanent UUID independent of workspace ID and mutable slug.
+`feed_enabled` defaults false, including migrated Shows. `POST /shows/:id/feed`
+validates saved details/artwork and opts into RSS while setting editorial Show
+status published. `GET /shows/:id/feed` reports readiness. These operations use
+existing Show permissions. Archived Shows have no publicly available feed.
+Publication number, season number, type and artwork source now remain fixed with
+the existing snapshot; Channel metadata is live. See [RSS architecture](RSS_ARCHITECTURE.md).

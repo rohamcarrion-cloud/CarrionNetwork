@@ -1,3 +1,4 @@
+import { prepareFeed } from './feeds.js';
 import { randomUUID } from 'node:crypto';
 import { pool, query } from './db.js';
 import { title, description, slug, uuid } from './validation.js';
@@ -123,6 +124,12 @@ export async function save(table, data, existing, parent, user) {
       parent,
       user,
     );
+    if (
+      table === 'shows' &&
+      result.feed_enabled &&
+      result.status === 'published'
+    )
+      await prepareFeed(client.query.bind(client), result);
     await client.query('COMMIT');
     return result;
   } catch (error) {

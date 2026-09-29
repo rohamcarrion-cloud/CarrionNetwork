@@ -15,6 +15,8 @@ import { title, uuid } from './validation.js';
 import { permission, save, list, remove } from './domain.js';
 import * as media from './media.js';
 import * as publishing from './publishing.js';
+import * as feeds from './feeds.js';
+import { matchesEtag } from './rss.js';
 import { filesystemStorage } from './storage.js';
 
 const scrypt = promisify(scryptCallback);
@@ -181,12 +183,51 @@ async function handle(request, response) {
     const { password_hash: ignored, ...user } = found.rows[0];
     return send(response, 200, { token, user });
   }
-  const publicRoute = /^\/public\/media\/([^/]+)$/.exec(path);
+  const feedRoute = /^\/feeds\/([^/]+)\.xml$/.exec(path);
+  if (feedRoute && ['GET', 'HEAD'].includes(request.method)) {
+    const feed = await feeds.readFeed(uuid(feedRoute[1]));
+    const headers = {
+      'Content-Type': 'application/rss+xml; charset=utf-8',
+      'Cache-Control': 'public, max-age=0, must-revalidate',
+      ETag: feed.etag,
+      'Last-Modified': feed.lastModified,
+      'X-Content-Type-Options': 'nosniff',
+    };
+    if (matchesEtag(request.headers['if-none-match'], feed.etag)) {
+      response.writeHead(304, headers);
+      return response.end();
+    }
+    response.writeHead(200, {
+      ...headers,
+      'Content-Length': Buffer.byteLength(feed.xml),
+    });
+    return response.end(request.method === 'HEAD' ? undefined : feed.xml);
+  }
+  const artworkRoute = /^\/public\/artwork\/([^/]+)\.(jpg|png)$/.exec(path);
+  if (artworkRoute && ['GET', 'HEAD'].includes(request.method)) {
+    const row = await feeds.publicArtwork(
+      uuid(artworkRoute[1]),
+      artworkRoute[2],
+    );
+    response.setHeader('Last-Modified', new Date(row.created_at).toUTCString());
+    return deliverMedia(
+      request,
+      response,
+      row,
+      'public, max-age=0, must-revalidate',
+    );
+  }
+  const publicRoute = /^\/public\/media\/([^/]+)(?:\/([^/]+)\.mp3)?$/.exec(
+    path,
+  );
   if (publicRoute && ['GET', 'HEAD'].includes(request.method)) {
     return deliverMedia(
       request,
       response,
-      await publishing.publicMedia(uuid(publicRoute[1])),
+      await publishing.publicMedia(
+        uuid(publicRoute[1]),
+        publicRoute[2] ? uuid(publicRoute[2]) : null,
+      ),
       'no-store',
     );
   }
@@ -253,6 +294,14 @@ async function handle(request, response) {
       return send(response, 201, {
         show: await save('shows', await readBody(request), null, null, user),
       });
+  }
+  const feedControl = /^\/shows\/([^/]+)\/feed$/.exec(path);
+  if (feedControl) {
+    const show = await permission(uuid(feedControl[1]), user.id);
+    if (request.method === 'GET')
+      return send(response, 200, await feeds.feedState(show));
+    if (request.method === 'POST')
+      return send(response, 200, await feeds.enableFeed(show.id));
   }
   const collection = /^\/shows\/([^/]+)\/(episodes|seasons)$/.exec(path);
   if (collection) {

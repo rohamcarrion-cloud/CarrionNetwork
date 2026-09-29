@@ -65,9 +65,9 @@ time validation but runs no background job.
 
 The first snapshot captures GUID, Episode title, description, resolved explicit
 flag, first publication timestamp and representation reference. Enclosure MIME,
-length and duration are immutable on the representation. Show-wide metadata,
-artwork, season and numbering are not copied into a giant snapshot; a future feed
-must deliberately define their live/editable policy. There is no feed today.
+length and duration are immutable on the representation. Milestone 007 extends this same snapshot with number, season number, episode type
+and optional artwork source. Channel metadata stays live. See [RSS architecture](RSS_ARCHITECTURE.md)
+for upgrade-time backfill and public artwork policy.
 
 | Action | Editorial state | Publication | Existing media URL |
 | --- | --- | --- | --- |
@@ -85,9 +85,8 @@ an explicit operation. It must not silently mutate a previously delivered URL.
 The GUID and first-publication time remain stable across all transitions.
 
 Unpublishing disables future discovery (`active=false`) but cannot recall downloads
-and does not break existing podcast-client media links. There is no public listing
-or feed endpoint yet. A future discovery query must require an active publication
-and apply Show visibility policy; Show archival currently remains an editorial
+and does not break existing podcast-client media links. Milestone 007 exposes explicitly enabled Show RSS feeds with active published
+Episodes only; archived Shows return 404. Show archival currently remains an editorial
 operation and does not revoke audio. Emergency takedown/revocation is a separate,
 not-yet-implemented operation, not an accidental side effect of unpublishing.
 
@@ -118,9 +117,8 @@ abort/error handling closes the stream. Multipart ranges and If-Range are deferr
 Public responses currently use `no-store`; private delivery keeps `private, no-store`.
 
 The API supplies an API-relative path, not a filesystem path. Local Vite exposes
-it as `/api/public/media/:id`. A deployment must retain its API mount; future RSS
-must use a configured canonical HTTPS delivery origin, never infer it from an
-untrusted Host header. No directory is mounted as static public storage.
+it as `/api/public/media/:id`. A deployment must retain its API mount. RSS now uses configured `PUBLIC_BASE_URL`
+with HTTPS outside loopback, never an untrusted Host header. No directory is mounted as static public storage.
 
 ## Future insertion points and limits
 
@@ -132,15 +130,26 @@ untrusted Host header. No directory is mounted as static public storage.
   A storage migration must preserve representation bytes and stable delivery IDs.
 - A CDN can front the public resolver with an explicit cache/takedown policy.
   The current no-store policy makes no CDN invalidation promises.
-- RSS can consume active publication snapshots and immutable enclosure metadata;
-  it needs Show feed settings, canonical URLs and its own validation. Distribution
+- RSS now consumes active publication snapshots and immutable enclosure metadata
+  with explicit Show opt-in, canonical URLs and feed validation. Distribution
   submissions/jobs and external outcomes belong outside Episode editorial status.
 - Analytics can key events to Episode GUID/publication and representation, without
   logging Studio bearer tokens or changing identities for retries.
 
-No processing queue, transcoding, normalization, automatic scheduler, RSS,
+No processing queue, transcoding, normalization, automatic scheduler,
 directory integration, CDN, analytics or emergency media takedown is implemented.
+RSS and explicit public artwork are implemented in Milestone 007.
 Backups must preserve SQL and storage together. Operational recovery from missing
 or tampered files, public-service rate limits and production deployment hardening
 remain separate work. Chromium verification is native macOS desktop and mobile
 emulation, not physical iOS/Safari or Firefox certification.
+
+## RSS integration — 007
+
+Feed generation consumes these retained publication rows; it does not publish
+Episodes independently. The original media URL remains valid. RSS adds the alias
+`/public/media/:representationUUID/:episodeGUID.mp3`, checked against the existing
+publication relationship, so each item has a stable, distinct enclosure URL even
+when bytes are shared. Enabled-feed publication prepares suitable Episode artwork
+within the same SQL transaction. Unpublish changes current feed inclusion and
+preserves both enclosure aliases. See [RSS architecture](RSS_ARCHITECTURE.md).

@@ -58,6 +58,14 @@ beforeEach(() => {
       if (path === `/shows/${show.id}/episodes`)
         return json({ items: [episode] });
       if (path === `/episodes/${episode.id}`) return json({ episode });
+      if (path.endsWith('/feed'))
+        return json({
+          feed_url: 'http://localhost:3010/feeds/stable.xml',
+          enabled: false,
+          ready: false,
+          issues: [],
+          published_episodes: 0,
+        });
       if (path.endsWith('/publication'))
         return json({
           publication: null,

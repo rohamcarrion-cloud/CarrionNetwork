@@ -1,5 +1,66 @@
 # Foundation verification
 
+## 2026-09-28 — Milestone 007: RSS Feed & Public Podcast Publishing
+
+Baseline: clean `main` at `47c2248bf5e0e9885d8a4fd9213671bf103e030e`, origin
+`git@github.com:rohamcarrion-cloud/CarrionNetwork.git`, zero ahead/behind after fetch.
+Docker PostgreSQL is healthy, dependencies resolve, and the six-migration ledger
+was verified before implementation. The primary environment remains native macOS.
+
+| Gate | Result |
+| --- | --- |
+| `npm run db:migrate` | 007 applied; final rerun no-op |
+| `npm run db:check` | Seven migration records verified |
+| Fresh/populated upgrade | Passed; 001–006 unchanged; existing Show/Episode/image/audio/cover relationships preserved |
+| Publication preservation | All pre-007 publication columns and complete representation rows match before/after; feed opt-in remains false |
+| 007 rollback | Injected failure after migration SQL rolls back tables, ledger and snapshot additions; retry succeeds |
+| Migration durability | Reconnect, original timestamps, ordered 008–010 probes, rollback and repaired retry pass |
+| `npm test` | 13 passed |
+| `npm run test:integration` | 17 passed (parent plus 16 subtests), no failures/skips |
+| `npm run test:web` | 33 passed |
+| `npm run typecheck` | Passed |
+| `npm run format:check` | Passed |
+| `npm run build` | Passed |
+| `npm run test:e2e` | 12 passed: six desktop and six mobile Chromium workflows |
+
+RSS unit tests parse generated XML offline using the existing jsdom DOMParser,
+including namespaces, text/attribute escaping, Unicode/invalid XML characters,
+optional artwork, channel/item values, UTC dates, deterministic output and ETags.
+Configuration tests reject unsafe/unconfigured delivery bases and preserve proxy
+prefixes. No tests depend on an online feed validator or external podcast service.
+
+API checks exercise opt-in and stable feed URLs across title/slug edits, empty and
+drafts-only feeds, Show metadata, artwork format/alpha/size validation, safe public
+artwork HEAD/Range, private path rejection and cross-workspace constraints. They
+verify publication inclusion, unpublish removal, archive/restore, republish with
+unchanged GUID/enclosure, snapshot stability after draft edits, episode/season/type,
+correct MIME/length/duration, shared audio with distinct enclosure URLs, optional
+art fallback, feed GET/HEAD, ETag lists/weak tags/wildcard, 304, and unchanged polls.
+Only ETag drives conditional 304; If-Modified-Since alone intentionally returns 200.
+A forged Host does not alter absolute URLs. Existing backend/API assertions remain.
+
+Frontend tests cover readiness, missing metadata/artwork, stable URL, Copy/View,
+empty/ready state, eligible count, optional-art warnings, clipboard failures,
+mutation errors and retry. New browser acceptance runs Account → Show → Show art →
+Enable RSS → Episode art → MP3 → Publish → real feed/enclosure/artwork requests →
+reload/session restore → Unpublish/removal → Republish/same GUID and representation.
+It opens View Feed in a browser tab. Existing media workflows, private boundaries,
+Range behavior and localhost/127.0.0.1 access pass in both projects. Desktop/mobile
+RSS screenshots were inspected; the page has no horizontal overflow.
+
+Visual review removed stale form copy saying feeds were unavailable. A focused
+browser rerun exposed a shutdown race: pg-pool drained before its sockets closed,
+so forced database removal could terminate an idle connection. Browser teardown now
+waits for client end events and drops the database without FORCE; the full browser
+suite was rerun to verify clean shutdown. No Mac-specific workaround or new package was introduced. Playwright emits its
+existing NO_COLOR/FORCE_COLOR warning. This verifies native Chromium and mobile
+emulation, not Safari, Firefox, physical devices or directory acceptance. Local
+feed URLs are not externally reachable; deployment requires canonical HTTPS
+configuration. No third-party validator, Apple/Spotify submission, transcoding,
+normalization, automatic scheduling or published-edition replacement is claimed.
+See [RSS architecture](RSS_ARCHITECTURE.md) for researched standards, URL/artwork
+retention, cache semantics and explicit future boundaries.
+
 ## 2026-09-28 — Mac handoff and Milestone 006
 
 This section supersedes the historical Windows/WSL environment notes below.
