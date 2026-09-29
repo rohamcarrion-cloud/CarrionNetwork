@@ -1,0 +1,12 @@
+node_modules/
+.env
+*.log
+dist/
+dist-e2e/
+test-results/
+playwright-report/
+.env.local
+.env.*.local
+
+# Local private media storage
+var/media/

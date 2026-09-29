@@ -1,0 +1,69 @@
+# Carrion Network handoff
+
+## Current milestone: Media Library Foundation — Image Assets
+
+The manually accepted Creator Studio baseline (registration, login, show and
+episode creation) has evolved into a workspace/show/optional-season/episode model.
+Read [README](../README.md), [Podcast Domain](PODCAST_DOMAIN.md), and
+[Creator Studio architecture](CREATOR_STUDIO_ARCHITECTURE.md) before extending it.
+The Horizons export remains design reference only.
+
+Start PostgreSQL, run `npm run db:migrate` and `npm run db:check`, then run
+`npm run dev` and `npm run dev:web` in separate terminals. Both localhost:5173 and
+127.0.0.1:5173 work through `/api`. Update any old `web/.env` absolute API URL to
+`VITE_API_URL=/api`. Sessions are origin-scoped, so changing hostname requires login.
+
+## Implemented
+
+- Personal workspaces created atomically with accounts, existing data backfilled.
+- Show podcast metadata, scoped slugs, editorial statuses, timestamps.
+- Optional seasons with same-show relational integrity and CRUD API.
+- Episode types, numbering, explicit inheritance, season association, release time.
+- Lifecycle validation and durable first-publication history; published records
+  cannot cycle through archive to become deletable drafts.
+- Authenticated, scoped CRUD; safe deletion; paginated/filterable/sortable lists.
+- Studio show/episode editors, lifecycle controls, optional season management,
+  show selection, status filters, and API error handling.
+- Migrations `002_podcast_domain.sql` and `003_publication_history.sql`; `001`
+  remains untouched. `004_media_assets.sql` adds the Media Library; future migrations begin at `005`.
+
+See [VERIFICATION](VERIFICATION.md) for gate results and WSL browser setup.
+The database suites create and clean disposable databases. Preserve all current
+checks when extending the domain. This workspace's `.git` metadata is unavailable
+to Git in the agent environment; changes are files in the shared workspace.
+
+## Media Library handoff
+
+Read [Media Library architecture](MEDIA_LIBRARY_ARCHITECTURE.md) for endpoints,
+validation, legacy preservation, deletion ordering and future preview variants.
+Sharp is the new image decoder dependency (`npm ci`). Set `MEDIA_STORAGE_DIR`
+if the private local default `./var/media` is unsuitable. Back up both files and
+PostgreSQL. No cloud account is needed. Studio uses original images for previews.
+
+Try Account → Media Library → Upload → Show editor → Choose cover → Save →
+Episode editor → Choose optional cover → Save → Reload. Replace and remove covers;
+assets remain in the library. Delete a referenced asset to see the safe rejection,
+then detach all covers before deleting it. Alt text is editable in the library.
+Workspace owners alone access media; show collaborators receive no implicit grant.
+Existing legacy media metadata and raw artwork values are preserved for manual
+import, not exposed as verified new images.
+
+## Next boundaries
+
+No audio processing, RSS, public delivery, distribution, analytics, or
+monetization was implemented. A scheduled status does not start a job; published
+is editorial state, not proof of delivery. Plan the next milestone explicitly.
+
+The intended media hierarchy is workspace Media Library → show artwork, optional
+episode artwork, primary episode audio, and other creator assets. Image covers now use workspace-checked composite foreign keys and a replaceable
+filesystem storage adapter; add separate contracts for future asset types.
+Do not store image/audio blobs on shows or episodes. Preserve episode GUIDs.
+
+Before public RSS delivery, add media readiness and feed validation, transactional
+publication jobs, scheduling execution, destination-specific state, and reliable
+retry semantics. Keep delivery state separate from editorial status. Workspace
+membership/invitations and ownership transfer need explicit migrations and grants;
+current show memberships must not silently grant workspace-wide access.
+
+Production service hardening and backup/restore testing remain separate work;
+this milestone provides the domain foundation, not a deployment certification.

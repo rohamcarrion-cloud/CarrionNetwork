@@ -1,0 +1,32 @@
+{
+  "name": "carrion-network-postgres",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.22.0"
+  },
+  "scripts": {
+    "dev": "node --env-file=.env --watch api/src/server.js",
+    "start": "node --env-file=.env api/src/server.js",
+    "db:migrate": "node --env-file=.env api/src/migrate.js",
+    "test": "node --test api/src/*.test.js",
+    "test:integration": "node --env-file-if-exists=.env --test api/test/*.test.js",
+    "db:check": "node --env-file=.env api/src/migrate.js --check",
+    "dev:web": "npm run dev --workspace=@carrion/studio",
+    "typecheck": "npm run typecheck --workspace=@carrion/studio",
+    "build": "npm run build --workspace=@carrion/studio",
+    "test:web": "npm run test --workspace=@carrion/studio",
+    "test:e2e": "npm run test:e2e --workspace=@carrion/studio",
+    "format:check": "prettier --check web/src web/e2e web/*.ts web/*.json web/index.html api/src api/test"
+  },
+  "dependencies": {
+    "pg": "^8.16.3",
+    "sharp": "^0.35.5"
+  },
+  "workspaces": [
+    "web"
+  ],
+  "devDependencies": {
+    "prettier": "^3.9.9"
+  }
+}
