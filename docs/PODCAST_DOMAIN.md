@@ -36,7 +36,7 @@ not an authorization principal. No HTML description rendering is supported.
 Episodes have title, description, optional positive episode number, type (`full`,
 `trailer`, `bonus`), nullable explicit override, optional season, `publish_at`,
 status, GUID, and timestamps. A null explicit flag inherits the show's setting;
-future feed output resolves `COALESCE(episode.explicit, show.explicit)`.
+the first publication snapshot resolves `COALESCE(episode.explicit, show.explicit)`.
 Episode numbers are descriptive and may repeat (trailers/bonuses are a common
 reason); slugs and GUIDs provide unique identities.
 
@@ -53,7 +53,7 @@ Shows: `draft`, `published`, `archived`. A show is not scheduled as a whole.
 Episodes: `draft`, `scheduled`, `published`, `archived`.
 
 Scheduling requires an explicit future timezone-bearing ISO timestamp.
-Publishing requires `publish_at` at or before now. `publish_at` is the editorial
+Explicit publishing validates metadata/audio and publishes now. `publish_at` is the editorial
 release time; `published_at` records the first publication transition and survives
 archive/restore. The older `scheduled_at` field is retained for compatibility but
 is no longer written; clients use `publish_at`. Existing scheduled/published
@@ -66,12 +66,12 @@ triggers preserve first-publication history and enforce deletion protection even
 if an archive is later edited. PATCH operations lock the record in a transaction
 to validate transitions against the latest committed state.
 
-**These are editorial records, not evidence of delivery.** There is no scheduler,
-public episode endpoint, RSS generation, directory submission, or public audio delivery. Private Studio audio delivery is available.
-A scheduled time passing does not automatically publish. Studio states this
-limitation. Future publishing services must add media-readiness checks and
-transactional outbox jobs; destination delivery state must remain separate from
-editorial status.
+Editorial status and media readiness are separate. Milestone 006 adds explicit
+publishing and retained snapshots; see [Publishing architecture](PUBLISHING_ARCHITECTURE.md).
+Generic PATCH cannot transition an Episode to published. Unpublish archives and
+withdraws discovery eligibility; Republish restores the same snapshot and audio.
+Existing media URLs remain usable. There is no scheduler, public episode listing,
+RSS or directory submission. A scheduled time passing does not publish automatically.
 
 Only never-published drafts may be permanently deleted. A show with episodes
 cannot be deleted; the database restricts the relationship. Empty seasons and
@@ -87,6 +87,7 @@ while attached. No automatic deletion of storage objects is implied by domain CR
 | Shows | `GET/POST /shows`, `GET/PATCH/DELETE /shows/:id` |
 | Seasons | `GET/POST /shows/:id/seasons`, `GET/PATCH/DELETE /seasons/:id` |
 | Episodes | `GET/POST /shows/:id/episodes`, `GET/PATCH/DELETE /episodes/:id` |
+| Publication | `GET /episodes/:id/publication`, `POST /episodes/:id/publish`, `POST /episodes/:id/unpublish` |
 
 Creates return 201, reads/updates 200, deletes 204. Singular responses use `show`,
 `season`, or `episode`; lists use `items` and
@@ -132,7 +133,7 @@ import; legacy audio columns remain untouched and unused by the new media path. 
 storage, authorization, validation and deletion contracts. Migration 005 adds nullable `primary_audio_asset_id` with a composite workspace/audio
 foreign key. Drafts need no audio. Assignment, replacement and detachment are
 independent of asset deletion; references block deletion. See [Audio architecture](AUDIO_ARCHITECTURE.md).
-Original uploads remain distinct from future processed/publishable representations.
+Original uploads remain distinct from `publishable_media` representations and `episode_publications` snapshots.
 
 Transcripts and chapters should be versioned episode child resources, optionally
 referencing source/derived assets. A show has a feed configuration resource;
@@ -147,7 +148,8 @@ remain future milestones.
 `001_foundation.sql` is unchanged. `002` adds/backfills the core domain. `003`
 protects publication history. `004` upgrades media metadata and adds image covers.
 `005` adds original MP3 assets and primary Episode audio.
-Applied migrations are immutable; the next change uses `006_...sql`. The existing runner wraps each file and its ledger insertion
+`006` adds publishable representations and retained publication snapshots.
+Applied migrations are immutable; the next change uses `007_...sql`. The existing runner wraps each file and its ledger insertion
 in one transaction, using a session advisory lock. Failure rolls back that file;
 already committed earlier files remain applied. There are no automatic destructive
 down migrations. Production recovery requires a reviewed forward repair or a tested

@@ -58,6 +58,17 @@ beforeEach(() => {
       if (path === `/shows/${show.id}/episodes`)
         return json({ items: [episode] });
       if (path === `/episodes/${episode.id}`) return json({ episode });
+      if (path.endsWith('/publication'))
+        return json({
+          publication: null,
+          ready: false,
+          issues: [
+            {
+              field: 'primary_audio_asset_id',
+              message: 'Attach valid MP3 audio before publishing.',
+            },
+          ],
+        });
       if (path.endsWith('/seasons')) return json({ items: [] });
       if (path === '/health') return json({ status: 'ok' });
       throw new Error(`Unexpected request: ${init.method} ${path}`);

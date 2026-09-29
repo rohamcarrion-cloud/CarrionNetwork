@@ -54,7 +54,7 @@ workspace ID equals their user ID; the Studio uses that mapping.
 | `GET /workspaces/:workspace/media/:id` | `{asset}` metadata |
 | `PATCH /workspaces/:workspace/media/:id` | JSON `{alt_text}`; up to 2,000 characters |
 | `GET /workspaces/:workspace/media/:id/content` | Private authenticated original bytes; single HTTP Range support |
-| `DELETE /workspaces/:workspace/media/:id` | 204; 409 if referenced by any show or episode |
+| `DELETE /workspaces/:workspace/media/:id` | 204; 409 if referenced by a show, episode or publishable representation |
 
 List supports limit 1–100 (default 24), nonnegative offset, sort `created_at`,
 `original_filename` or `size_bytes`, and direction `asc`/`desc` (default `desc`).
@@ -101,3 +101,16 @@ preview generation, EXIF orientation normalization, cropping and responsive
 variants belong beside `validateImage` in the media service, with variant keys
 stored separately and delivered through the same authorized storage boundary.
 Show/Episode business logic should continue referencing the parent asset only.
+
+## Publication retention — Milestone 006
+
+Private Library originals remain distinct from `publishable_media` and publication
+snapshots. Source provenance foreign keys prevent deleting an original retained by
+a representation even after an Episode detaches it. Storage identity and original
+bytes are immutable; alt text remains editable. Initial MP3 representations share
+the write-once original object but have independent UUIDs and enclosure metadata.
+Public delivery requires a ready representation with retained publication history;
+arbitrary Library IDs and original storage keys cannot resolve publicly. See
+[Publishing architecture](PUBLISHING_ARCHITECTURE.md). Never garbage-collect an
+object solely because one reference disappeared; check original and representation
+references. There is no automatic representation/object garbage collection today.

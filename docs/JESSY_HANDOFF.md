@@ -1,6 +1,6 @@
 # Carrion Network handoff
 
-## Current milestone: Media Library Foundation — Image Assets
+## Current milestone: 006 — Publishable Media & Publishing Foundation
 
 The manually accepted Creator Studio baseline (registration, login, show and
 episode creation) has evolved into a workspace/show/optional-season/episode model.
@@ -25,12 +25,20 @@ Start PostgreSQL, run `npm run db:migrate` and `npm run db:check`, then run
 - Studio show/episode editors, lifecycle controls, optional season management,
   show selection, status filters, and API error handling.
 - Migrations `002_podcast_domain.sql` and `003_publication_history.sql`; `001`
-  remains untouched. `004_media_assets.sql` adds the Media Library; `005_episode_audio.sql` adds audio; future migrations begin at `006`.
+  remains untouched. `004_media_assets.sql` adds the Media Library; `005_episode_audio.sql` adds audio; `006_publishable_media.sql` adds representations and snapshots; future migrations begin at `007`.
 
-See [VERIFICATION](VERIFICATION.md) for gate results and WSL browser setup.
-The database suites create and clean disposable databases. Preserve all current
-checks when extending the domain. This workspace's `.git` metadata is unavailable
-to Git in the agent environment; changes are files in the shared workspace.
+See [VERIFICATION](VERIFICATION.md) for native Mac gate results. The Mac checkout
+of `rohamcarrion-cloud/CarrionNetwork` is the primary environment. Start from a clean,
+synchronized `main`; preserve published history. Node must satisfy package.json
+(>=22.22.0). `npm ls --depth=0` verifies locked installations; use `npm ci` when
+installing. Chromium runs natively using `npm run test:e2e`, without the old WSL
+library override. Database/browser suites create and clean disposable databases.
+
+Read [Publishing architecture](PUBLISHING_ARCHITECTURE.md) before changing lifecycle,
+media identity or delivery. Publish validates saved metadata and MP3, atomically
+creates a retained snapshot, and enables an opaque public media URL. Unpublish
+archives/withdraws discovery but keeps audio links working. Republish restores the
+same snapshot, GUID and URL. Metadata/audio edits do not replace published bytes.
 
 ## Media Library handoff
 
@@ -50,8 +58,8 @@ import, not exposed as verified new images.
 
 ## Next boundaries
 
-No audio processing, RSS, public delivery, distribution, analytics, or
-monetization was implemented. A scheduled status does not start a job; published
+No audio processing, RSS, distribution, analytics, or monetization is implemented.
+Separate public GET/HEAD/Range delivery is implemented for retained ready publications. A scheduled status does not start a job; published
 is editorial state, not proof of delivery. Plan the next milestone explicitly.
 
 The intended media hierarchy is workspace Media Library → show artwork, optional
@@ -59,9 +67,9 @@ episode artwork, primary episode audio, and other creator assets. Image covers n
 filesystem storage adapter; add separate contracts for future asset types.
 Do not store image/audio blobs on shows or episodes. Preserve episode GUIDs.
 
-Before public RSS delivery, add media readiness and feed validation, transactional
-publication jobs, scheduling execution, destination-specific state, and reliable
-retry semantics. Keep delivery state separate from editorial status. Workspace
+Before public RSS delivery, add feed-specific validation/settings and canonical
+HTTPS URLs. Later scheduling/distribution need transactional jobs, destination state
+and external retry/reconciliation semantics. Current synchronous publishing is retry-safe. Keep delivery state separate from editorial status. Workspace
 membership/invitations and ownership transfer need explicit migrations and grants;
 current show memberships must not silently grant workspace-wide access.
 
@@ -82,7 +90,7 @@ validation checks frames and decodes in a bounded worker without FFmpeg. Origina
 audio is private. Range-capable API delivery does not make files public; Studio
 previews use authenticated downloads and temporary blob URLs.
 
-Original assets must not be permanently coupled to public RSS enclosures. Future
-processing/publishable representations and public delivery require separate design.
+Original assets must not be permanently coupled to public RSS enclosures. Milestone 006 now implements
+separate publishable representations and public delivery; processing remains future work.
 RSS, distribution, processing, transcripts, chapters, analytics and monetization
 remain deferred. See [Verification](VERIFICATION.md) for milestone gate results.

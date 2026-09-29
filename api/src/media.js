@@ -186,7 +186,7 @@ export async function deleteAsset(row) {
     if (error.code === '23503')
       fail(
         409,
-        `${row.asset_type === 'audio' ? 'Audio' : 'Image'} is used by a show or episode. Remove its relationship first.`,
+        `${row.asset_type === 'audio' ? 'Audio' : 'Image'} is used by a show, episode, or retained publication. Published media must be retained.`,
       );
     throw error;
   }

@@ -63,7 +63,7 @@ storage quotas and disk capacity need coordinated production configuration.
 
 The existing filesystem adapter remains the only provider. `MEDIA_STORAGE_DIR`
 defaults to ignored `var/media/`; filenames never become paths. Adapter operations
-are `put(key, bytes)`, `get(key)`, `stream(key, {start,end}?)`, and `delete(key)`.
+are `put(key, bytes)`, `get(key)`, `stream(key, {start,end}?)`, `stat(key)`, and `delete(key)`.
 Byte offsets are inclusive. Delivery streams only the requested bytes, rather than
 loading a podcast into API memory. S3-compatible/R2/B2 adapters can implement the
 same contract with object keys and provider Range reads; domain code has no
@@ -96,18 +96,21 @@ URLs are revoked and in-flight requests canceled on unmount/change. Preview incu
 browser memory/download cost proportional to file size. The authenticated endpoint's
 Range support is independently exercised by integration tests.
 
-## Future boundary — not implemented
+## Publishable boundary — Milestone 006
 
-Original upload → processing/transcoding → publishable representation → RSS
-enclosure → public delivery/CDN → distribution → analytics.
+Original → Episode → explicit Publish → publishable representation → public delivery.
 
-A primary asset identifies the creator's original upload. It is **not** a commitment
-to publish those original bytes or use the private Studio content URL in RSS.
-Future derived representations need their own keys, MIME, byte length, readiness
-and processing provenance, with stable public enclosure identity and delivery
-policy. Public RSS clients cannot use a Studio bearer session; that milestone must
-explicitly design public authorization, URL durability, cache/range semantics,
-publication/revocation and CDN behavior independently of the private editor.
+`publishable_media` snapshots the MP3 storage identity and enclosure metadata,
+initially using the original write-once object. `episode_publications` retains the
+first published Episode values and representation. Both have identities separate
+from editable original association and Episode metadata. The original remains
+private through Studio routes. Explicitly published representations alone resolve
+through `/public/media/:id` with GET, HEAD and byte ranges.
+
+See [Publishing architecture](PUBLISHING_ARCHITECTURE.md) for validation, concurrency,
+retention, unpublish/republish semantics and future processing/CDN/RSS insertion
+points. Detaching or changing current primary audio cannot change published audio
+or allow deletion of its source. Republish restores the retained snapshot.
 
 Direct-to-object-storage and resumable uploads should use staged/untrusted objects,
 a finalize/validation step and authorization before making assets selectable.

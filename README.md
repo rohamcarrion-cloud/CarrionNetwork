@@ -11,15 +11,16 @@ support podcast metadata, optional seasons, and editorial lifecycle management. 
 capabilities; they do not display fabricated analytics or pretend to publish.
 Settings displays the current creator profile and API connection health.
 
-**Media Library Foundation — September 28, 2026:** validation, API integration, frontend
-unit/component tests, strict types, formatting, production build, and real-API
-desktop/mobile Chromium workflows pass. See [verification details](docs/VERIFICATION.md)
-for the WSL browser-library setup and remaining product scope.
+**Milestone 006 — Publishable Media & Publishing Foundation:** private originals,
+immutable publishable representations, deliberate publishing, retained publication
+snapshots, and separate public MP3 GET/HEAD/Range delivery are implemented.
+See [Publishing architecture](docs/PUBLISHING_ARCHITECTURE.md) and
+[verification](docs/VERIFICATION.md). This Mac is the primary development environment.
 
 ## Local setup
 
 Use Node.js **22.22+ (24 LTS recommended)**, npm, and Docker with Compose.
-On Windows, run these commands in WSL with Docker Desktop integration enabled.
+On macOS, run these commands natively with Docker Desktop running. No WSL browser-library environment overrides are needed.
 From the project root:
 
 ```bash
@@ -47,7 +48,7 @@ The environment files above are created only if missing:
 | File | Setting | Purpose |
 | --- | --- | --- |
 | `.env` | `DATABASE_URL` | API/application migration connection; keep secret. |
-| `.env` | `MEDIA_STORAGE_DIR` | Private image directory, default `./var/media`; back up with the database. |
+| `.env` | `MEDIA_STORAGE_DIR` | Private original and representation storage directory, default `./var/media`; back up with the database. |
 | `.env` | `PORT` | API port, default 3010. |
 | `.env` | `WEB_ORIGIN` | Exact allowed frontend origin, default `http://localhost:5173`. |
 | `web/.env` | `VITE_API_URL` | Public API base path, default `/api`; never include secrets. |
@@ -112,7 +113,7 @@ docker compose exec -T postgres psql -U carrion -d carrion_network \
 
 The earlier “0 rows” result was from the separate query for leftover temporary
 test databases; the ledger query returned `001_foundation.sql`. The current ledger has `001_foundation.sql`, `002_podcast_domain.sql`, and
-`003_publication_history.sql`, plus `004_media_assets.sql` and `005_episode_audio.sql`. New migrations start at `006_description.sql`.
+`003_publication_history.sql`, plus `004_media_assets.sql`, `005_episode_audio.sql` and `006_publishable_media.sql`. New migrations start at `007_description.sql`.
 Keep names zero-padded and ordered, keep applied files immutable, and never put
 `BEGIN`/`COMMIT` in them. The runner owns each transaction and reports “Applied”
 only after SQL and its tracking row commit together. See the regression coverage
@@ -169,8 +170,10 @@ Use `POST /shows/:id/seasons` with `{ "title": "Season one", "season_number": 1 
 to create an optional season. Episodes accept `season_id` or null, type, number,
 explicit override, status, and `publish_at`. Shows support podcast metadata.
 Only never-published drafts can be deleted; shows containing episodes must be
-archived or emptied first. Scheduling and published status record editorial
-state only; they do not deliver media or create a public feed.
+archived or emptied first. Scheduling records editorial intent and runs no background job. Episode publication
+uses `POST /episodes/:id/publish`, with saved podcast metadata and valid MP3 audio.
+Unpublish archives the Episode and preserves existing media URLs; Republish restores
+the first snapshot. Later Episode edits do not overwrite that snapshot. RSS is not implemented.
 
 Media Library supports private JPEG/PNG/WebP and MP3 uploads, filtered/paginated browsing, previews,
 alt text and safe deletion. Shows and episodes select reusable workspace images;
@@ -184,7 +187,11 @@ referenced audio cannot be deleted. MP3 defaults to 100 MiB, configurable via
 `AUDIO_MAX_UPLOAD_BYTES`. Original private bytes use the same filesystem adapter
 and authenticated delivery with single HTTP byte-range support. Studio downloads
 previews on demand into temporary blob URLs. See [Audio architecture](docs/AUDIO_ARCHITECTURE.md)
-for format restrictions, metadata, resource limits and the future public delivery boundary.
+for format restrictions, metadata, resource limits and private/public boundaries.
+The Episode editor displays publishing readiness, validation errors and publication
+state. Add Show author/category/description, Episode description, attach MP3, save,
+then Publish. `GET /episodes/:id/publication` reports readiness; public URLs resolve
+only explicitly published representations.
 RSS, audio processing, delivery scheduling, distribution, analytics and monetization
 remain future milestones.
 
@@ -198,8 +205,8 @@ and backup/restore procedures remain future work.
 
 ## Troubleshooting and project records
 
-Docker Desktop WSL integration is working. If Docker becomes unavailable, start
-Docker Desktop and enable the WSL distro. Use `docker compose ps` and
+Docker Desktop on macOS supplies PostgreSQL. If Docker becomes unavailable, start
+Docker Desktop. Use `docker compose ps` and
 `docker compose logs postgres` to inspect health. Connection refusal usually
 means a stopped database or incorrect URL/port. Docker socket permission errors
 or `EPERM` in a restricted agent sandbox may require approved execution outside

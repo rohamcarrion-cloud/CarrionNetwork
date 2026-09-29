@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useAuth } from '../auth/AuthProvider';
-import type { Show } from '../api/types';
+import type { Show, Episode } from '../api/types';
 import {
   ActionLink,
   EmptyState,
@@ -88,8 +88,8 @@ export function EpisodeList({ show }: { show: Show }) {
             </ActionLink>
           }
         >
-          Start with an episode title and description. Audio uploads and
-          publishing are coming in a later milestone.
+          Start with a title and description, attach audio, then publish when
+          ready.
         </EmptyState>
       )}
     </section>
@@ -204,6 +204,13 @@ export function EpisodeEditor({ create = false }: { create?: boolean }) {
         }}
       />
       {episode && (
+        <PublishingControls
+          key={episode.updated_at}
+          episode={episode}
+          onChange={resource.retry}
+        />
+      )}
+      {episode && (
         <div className="panel episode-meta">
           <span className="badge">{episode.status}</span>
           <p>
@@ -228,5 +235,115 @@ export function EpisodeEditor({ create = false }: { create?: boolean }) {
           />
         )}
     </>
+  );
+}
+
+export function PublishingControls({
+  episode,
+  onChange,
+}: {
+  episode: Episode;
+  onChange: () => void;
+}) {
+  const { api } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const state = useResource(
+    useCallback(
+      (signal: AbortSignal) => api.publication(episode.id, signal),
+      [api, episode.id],
+    ),
+  );
+  async function operate(unpublish = false) {
+    setBusy(true);
+    setError('');
+    try {
+      if (unpublish) await api.unpublish(episode.id);
+      else await api.publish(episode.id);
+      onChange();
+      state.retry();
+    } catch (error) {
+      setError((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="panel episode-meta" aria-label="Publishing">
+      <h2>Publishing</h2>
+      {state.loading ? (
+        <Loading label="Checking publishability…" />
+      ) : state.error ? (
+        <ErrorNotice message={state.error} retry={state.retry} />
+      ) : (
+        state.data && (
+          <>
+            <p role="status">
+              {!state.data.ready
+                ? state.data.publication
+                  ? 'Publication/media problem'
+                  : 'Not ready to publish'
+                : state.data.publication?.active
+                  ? 'Published'
+                  : state.data.publication
+                    ? 'Unpublished — archived'
+                    : 'Ready to publish'}
+            </p>
+            <p>
+              {episode.primary_audio_asset_id
+                ? 'Audio attached'
+                : 'No audio attached'}
+            </p>
+            {state.data.issues.length > 0 && (
+              <ul>
+                {state.data.issues.map((i) => (
+                  <li key={i.field}>{i.message}</li>
+                ))}
+              </ul>
+            )}
+            {state.data.publication && (
+              <>
+                <p>Published title: {state.data.publication.title}</p>
+                <p>
+                  Stable media URL{' '}
+                  <code>{state.data.publication.media_url}</code>
+                </p>
+                <p>
+                  Edits remain separate from the published snapshot. Republish
+                  restores that snapshot and the same audio. Unpublish archives
+                  this episode; existing media links continue working.
+                </p>
+              </>
+            )}
+            <p>Publishing uses saved details. Save changes above first.</p>
+            {error && <ErrorNotice message={error} />}
+            <div className="form-actions">
+              {!state.data.publication?.active && (
+                <button
+                  className="button"
+                  disabled={busy || !state.data.ready}
+                  onClick={() => operate()}
+                >
+                  {busy
+                    ? 'Publishing…'
+                    : state.data.publication
+                      ? 'Republish'
+                      : 'Publish'}
+                </button>
+              )}
+              {state.data.publication?.active && (
+                <button
+                  className="button secondary"
+                  disabled={busy}
+                  onClick={() => operate(true)}
+                >
+                  Unpublish
+                </button>
+              )}
+            </div>
+          </>
+        )
+      )}
+    </section>
   );
 }

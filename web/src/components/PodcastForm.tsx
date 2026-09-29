@@ -117,13 +117,18 @@ export function PodcastForm({
                 Scheduled
               </option>
             )}
-            <option value="published">Published</option>
+            {(kind === 'show' || initial?.status === 'published') && (
+              <option value="published" disabled={kind === 'episode'}>
+                Published
+              </option>
+            )}
             <option value="archived">Archived</option>
           </select>
         </label>
         <small>
-          Status records editorial intent. Public feeds and distribution are not
-          available yet.
+          Save your changes before publishing. Scheduling records intent;
+          automatic publishing, public feeds and distribution are not available
+          yet.
         </small>
         {kind === 'episode' && (
           <>

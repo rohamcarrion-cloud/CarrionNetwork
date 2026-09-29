@@ -1,3 +1,4 @@
+import type { PublicationState } from './types';
 import type {
   MediaAsset,
   Credentials,
@@ -198,6 +199,20 @@ export function createApi(
         method: 'PATCH',
         body,
       }),
+    publication: (id: string, signal?: AbortSignal) =>
+      request<PublicationState>(
+        `/episodes/${encodeURIComponent(id)}/publication`,
+        { signal },
+      ),
+    publish: (id: string) =>
+      request<PublicationState>(`/episodes/${encodeURIComponent(id)}/publish`, {
+        method: 'POST',
+      }),
+    unpublish: (id: string) =>
+      request<PublicationState>(
+        `/episodes/${encodeURIComponent(id)}/unpublish`,
+        { method: 'POST' },
+      ),
     deleteEpisode: (id: string) =>
       request<void>(`/episodes/${encodeURIComponent(id)}`, {
         method: 'DELETE',

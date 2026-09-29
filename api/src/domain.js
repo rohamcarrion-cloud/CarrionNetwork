@@ -163,6 +163,12 @@ async function saveRecord(query, table, data, existing, parent, user) {
     ).rowCount
   )
     fail(400, 'Choose audio from this workspace');
+  if (
+    table === 'episodes' &&
+    values.status === 'published' &&
+    existing?.status !== 'published'
+  )
+    fail(400, 'Use the Publish operation to publish an episode');
   if (!existing && !values.title) fail(400, 'Title required');
   if (table === 'seasons' && !merged.season_number)
     fail(400, 'Season number required');

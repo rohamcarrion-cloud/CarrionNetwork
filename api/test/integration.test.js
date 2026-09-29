@@ -8,7 +8,7 @@ import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import sharp from 'sharp';
-import { mkdtemp, copyFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, copyFile, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runMigrations } from '../src/migration-runner.js';
@@ -51,6 +51,30 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
           timeout: 30_000,
         },
       );
+    await t.test('all six migrations apply on a fresh database', async () => {
+      const fresh = `carrion_test_${randomUUID().replaceAll('-', '')}`;
+      await admin.query(`CREATE DATABASE "${fresh}"`);
+      const freshUrl = new URL(url);
+      freshUrl.pathname = `/${fresh}`;
+      const freshClient = new pg.Client({ connectionString: freshUrl.href });
+      try {
+        await freshClient.connect();
+        const ledger = await runMigrations(
+          freshClient,
+          fileURLToPath(new URL('../migrations', import.meta.url)),
+          { log: () => {} },
+        );
+        assert.equal(ledger.length, 6);
+        assert.equal(
+          (await freshClient.query('SELECT * FROM episode_publications'))
+            .rowCount,
+          0,
+        );
+      } finally {
+        await freshClient.end();
+        await admin.query(`DROP DATABASE "${fresh}" WITH (FORCE)`);
+      }
+    });
     await t.test(
       'populated foundation upgrades without losing identities and migrations rerun safely',
       async () => {
@@ -117,7 +141,86 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
               imageId,
             ])
           ).rows[0];
+          await copyFile(
+            fileURLToPath(
+              new URL('../migrations/005_episode_audio.sql', import.meta.url),
+            ),
+            join(directory, '005_episode_audio.sql'),
+          );
+          await runMigrations(client, directory, { log: () => {} });
+          const audioId = randomUUID();
+          await client.query(
+            "INSERT INTO media_assets(id,workspace_id,storage_key,mime_type,size_bytes,asset_type,duration_seconds) VALUES($1,$2,$3,'audio/mpeg',123,'audio',1)",
+            [audioId, userId, randomUUID()],
+          );
+          await client.query(
+            'UPDATE episodes SET primary_audio_asset_id=$1 WHERE id=$2',
+            [audioId, episodeId],
+          );
+          await client.query('UPDATE shows SET cover_asset_id=$1 WHERE id=$2', [
+            imageId,
+            showId,
+          ]);
+          const beforeAudio = (
+            await client.query('SELECT * FROM media_assets WHERE id=$1', [
+              audioId,
+            ])
+          ).rows[0];
+          // Preserve historical editorial publishing without exposing it automatically.
+          const legacyPublished = randomUUID();
+          await client.query(
+            "INSERT INTO episodes(id,show_id,workspace_id,title,slug,guid,status,publish_at) VALUES($1,$2,$3,'Historical','historical',$4,'published',now())",
+            [legacyPublished, showId, userId, randomUUID()],
+          );
+          const migration006 = await readFile(
+            new URL('../migrations/006_publishable_media.sql', import.meta.url),
+            'utf8',
+          );
+          await writeFile(
+            join(directory, '006_publishable_media.sql'),
+            migration006 + '\nSELECT fail_006_upgrade();',
+          );
+          await assert.rejects(
+            runMigrations(client, directory, { log: () => {} }),
+            /fail_006_upgrade/,
+          );
+          assert.equal(
+            (
+              await client.query(
+                "SELECT to_regclass('publishable_media') AS name",
+              )
+            ).rows[0].name,
+            null,
+          );
+          assert.equal(
+            (
+              await client.query(
+                "SELECT * FROM schema_migrations WHERE name='006_publishable_media.sql'",
+              )
+            ).rowCount,
+            0,
+          );
           const output = upgradeLogs.join('\n') + (await migrate()).stdout;
+          assert.deepEqual(
+            (
+              await client.query('SELECT * FROM media_assets WHERE id=$1', [
+                audioId,
+              ])
+            ).rows[0],
+            beforeAudio,
+          );
+          assert.equal(
+            (await client.query('SELECT * FROM episode_publications')).rowCount,
+            0,
+          );
+          assert.equal(
+            (
+              await client.query('SELECT status FROM episodes WHERE id=$1', [
+                legacyPublished,
+              ])
+            ).rows[0].status,
+            'published',
+          );
           const afterImage = (
             await client.query('SELECT * FROM media_assets WHERE id=$1', [
               imageId,
@@ -133,7 +236,7 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
             ])
           ).rows[0];
           assert.equal(upgradedEpisode.cover_asset_id, imageId);
-          assert.equal(upgradedEpisode.primary_audio_asset_id, null);
+          assert.equal(upgradedEpisode.primary_audio_asset_id, audioId);
           const legacy = (
             await client.query(
               "SELECT * FROM media_assets WHERE storage_key='legacy-key'",
@@ -157,7 +260,7 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
                 [showId],
               )
             ).rows[0].cover_asset_id,
-            null,
+            imageId,
           );
           assert.match(output, /Applied 002_podcast_domain.sql/);
           assert.match(output, /Applied 003_publication_history.sql/);
@@ -217,6 +320,7 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
               '003_publication_history.sql',
               '004_media_assets.sql',
               '005_episode_audio.sql',
+              '006_publishable_media.sql',
             ],
           );
           assert.ok(initial[0].applied_at instanceof Date);
@@ -253,12 +357,21 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
             ),
             join(directory, '005_episode_audio.sql'),
           );
-          await writeFile(
-            join(directory, '006_probe.sql'),
-            'CREATE TABLE migration_probe (id integer PRIMARY KEY);',
+          await copyFile(
+            fileURLToPath(
+              new URL(
+                '../migrations/006_publishable_media.sql',
+                import.meta.url,
+              ),
+            ),
+            join(directory, '006_publishable_media.sql'),
           );
           await writeFile(
             join(directory, '007_probe.sql'),
+            'CREATE TABLE migration_probe (id integer PRIMARY KEY);',
+          );
+          await writeFile(
+            join(directory, '008_probe.sql'),
             'INSERT INTO migration_probe VALUES (1);',
           );
           await assert.rejects(
@@ -280,8 +393,9 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
               '003_publication_history.sql',
               '004_media_assets.sql',
               '005_episode_audio.sql',
-              '006_probe.sql',
+              '006_publishable_media.sql',
               '007_probe.sql',
+              '008_probe.sql',
             ],
           );
           assert.equal(
@@ -294,14 +408,14 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
             1,
           );
           await writeFile(
-            join(directory, '008_failure.sql'),
+            join(directory, '009_failure.sql'),
             'CREATE TABLE rollback_probe (id integer); SELECT missing_migration_function();',
           );
           await assert.rejects(
             runMigrations(client, directory, options),
             /missing_migration_function/,
           );
-          assert.ok(!logs.includes('Applied 008_failure.sql'));
+          assert.ok(!logs.includes('Applied 009_failure.sql'));
           await client.end();
           client = await connect();
           assert.equal(
@@ -315,13 +429,13 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
           assert.equal(
             (
               await client.query(
-                "SELECT * FROM public.schema_migrations WHERE name='008_failure.sql'",
+                "SELECT * FROM public.schema_migrations WHERE name='009_failure.sql'",
               )
             ).rowCount,
             0,
           );
           await writeFile(
-            join(directory, '008_failure.sql'),
+            join(directory, '009_failure.sql'),
             'CREATE TABLE rollback_probe (id integer);',
           );
           await runMigrations(client, directory, options);
@@ -332,9 +446,9 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
                 checkOnly: true,
               })
             ).length,
-            8,
+            9,
           );
-          await rm(join(directory, '008_failure.sql'));
+          await rm(join(directory, '009_failure.sql'));
           await assert.rejects(
             runMigrations(client, directory, { ...options, checkOnly: true }),
             /Applied migration files missing/,
@@ -362,6 +476,21 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
       const text = await response.text();
       assert.equal(response.status, status, `${method} ${path}: ${text}`);
       return text ? JSON.parse(text) : undefined;
+    }
+    async function uploadAudio(auth = token, workspaceId = owner.id) {
+      const response = await fetch(
+        `${base}/workspaces/${workspaceId}/media?filename=publish.mp3`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${auth}`,
+            'Content-Type': 'audio/mpeg',
+          },
+          body: silentMp3(),
+        },
+      );
+      assert.equal(response.status, 201);
+      return (await response.json()).asset;
     }
     async function register(email) {
       return (
@@ -741,8 +870,26 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
         });
         await request('PATCH', `/episodes/${e.id}`, {
           token,
+          status: 400,
           body: { status: 'published', publish_at: '2026-01-01T12:00:00Z' },
         });
+        const publishAudio = await uploadAudio();
+        await request('PATCH', `/shows/${s.id}`, {
+          token,
+          body: {
+            description: 'Podcast description',
+            author: 'Creator',
+            category: 'Technology',
+          },
+        });
+        await request('PATCH', `/episodes/${e.id}`, {
+          token,
+          body: {
+            description: 'Episode description',
+            primary_audio_asset_id: publishAudio.id,
+          },
+        });
+        await request('POST', `/episodes/${e.id}/publish`, { token });
         await request('DELETE', `/episodes/${e.id}`, { token, status: 409 });
         await request('PATCH', `/episodes/${e.id}`, {
           token,
@@ -1211,6 +1358,333 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
         for (const id of [a.id, b.id, image.id])
           await request('DELETE', path + '/' + id, { token, status: 204 });
         await request('GET', path + '/' + a.id, { token, status: 404 });
+      },
+    );
+    await t.test(
+      'publishing validates, isolates, snapshots and preserves public identities across retries and withdrawal',
+      async () => {
+        const s = (
+          await request('POST', '/shows', {
+            token,
+            status: 201,
+            body: { title: 'Publishing show' },
+          })
+        ).show;
+        const e = (
+          await request('POST', `/shows/${s.id}/episodes`, {
+            token,
+            status: 201,
+            body: { title: 'Publishing episode' },
+          })
+        ).episode;
+        const operation = `/episodes/${e.id}/publish`;
+        await request('POST', operation, { status: 401 });
+        await request('POST', operation, { token: outsiderToken, status: 404 });
+        await request('GET', `/episodes/${e.id}/publication`, {
+          token: outsiderToken,
+          status: 404,
+        });
+        await request('POST', `/episodes/${randomUUID()}/publish`, {
+          token,
+          status: 404,
+        });
+        const rejected = await request('POST', operation, {
+          token,
+          status: 422,
+        });
+        assert.equal(rejected.code, 'publication_not_ready');
+        assert.ok(
+          rejected.issues.some((i) => i.field === 'primary_audio_asset_id'),
+        );
+        assert.ok(rejected.issues.some((i) => i.field === 'show.author'));
+        assert.equal(
+          (
+            await pool.query(
+              'SELECT * FROM episode_publications WHERE episode_id=$1',
+              [e.id],
+            )
+          ).rowCount,
+          0,
+        );
+        const audio = await uploadAudio();
+        const foreign = await uploadAudio(outsiderToken, outsider.id);
+        await request('PATCH', `/episodes/${e.id}`, {
+          token,
+          status: 400,
+          body: { primary_audio_asset_id: foreign.id },
+        });
+        await assert.rejects(
+          pool.query(
+            `INSERT INTO publishable_media(id,workspace_id,source_media_asset_id,profile,storage_key,mime_type,size_bytes,duration_seconds) VALUES($1,$2,$3,'original-mp3-v1',$4,'audio/mpeg',123,1)`,
+            [randomUUID(), owner.id, foreign.id, randomUUID()],
+          ),
+          { code: '23503' },
+        );
+        await request('PATCH', `/shows/${s.id}`, {
+          token,
+          body: {
+            description: 'A show',
+            author: 'Creator',
+            category: 'Technology',
+          },
+        });
+        await request('PATCH', `/episodes/${e.id}`, {
+          token,
+          body: { description: 'An episode', primary_audio_asset_id: audio.id },
+        });
+        assert.equal(
+          (await request('GET', `/episodes/${e.id}/publication`, { token }))
+            .ready,
+          true,
+        );
+        await assert.rejects(
+          pool.query(
+            "UPDATE episodes SET status='published',publish_at=now() WHERE id=$1",
+            [e.id],
+          ),
+          { code: '23514' },
+        );
+        const published = await Promise.all([
+          request('POST', operation, { token }),
+          request('POST', operation, { token }),
+        ]);
+        const p = published[0].publication;
+        assert.deepEqual(published[1].publication, p);
+        assert.equal(p.guid, e.guid);
+        assert.equal(p.state, 'ready');
+        assert.equal(p.active, true);
+        assert.equal(p.storage_key, undefined);
+        assert.equal(
+          (
+            await pool.query(
+              'SELECT * FROM publishable_media WHERE source_media_asset_id=$1',
+              [audio.id],
+            )
+          ).rowCount,
+          1,
+        );
+        const publicUrl = base + p.media_url;
+        const bytes = silentMp3();
+        const full = await fetch(publicUrl);
+        assert.equal(full.status, 200);
+        assert.equal(full.headers.get('content-type'), 'audio/mpeg');
+        assert.deepEqual(Buffer.from(await full.arrayBuffer()), bytes);
+        const head = await fetch(publicUrl, { method: 'HEAD' });
+        assert.equal(head.status, 200);
+        assert.equal(head.headers.get('content-length'), String(bytes.length));
+        assert.equal((await head.arrayBuffer()).byteLength, 0);
+        const rangeHead = await fetch(publicUrl, {
+          method: 'HEAD',
+          headers: { Range: 'bytes=0-9' },
+        });
+        assert.equal(rangeHead.status, 200);
+        assert.equal(
+          rangeHead.headers.get('content-length'),
+          String(bytes.length),
+        );
+        assert.equal(head.headers.get('cache-control'), 'no-store');
+
+        for (const [range, start, end] of [
+          ['bytes=0-9', 0, 9],
+          ['bytes=5-', 5, bytes.length - 1],
+          ['bytes=-7', bytes.length - 7, bytes.length - 1],
+          ['bytes=0-999999', 0, bytes.length - 1],
+        ]) {
+          const res = await fetch(publicUrl, { headers: { Range: range } });
+          assert.equal(res.status, 206);
+          assert.equal(
+            res.headers.get('content-range'),
+            `bytes ${start}-${end}/${bytes.length}`,
+          );
+          assert.equal(
+            res.headers.get('content-length'),
+            String(end - start + 1),
+          );
+          assert.deepEqual(
+            Buffer.from(await res.arrayBuffer()),
+            bytes.subarray(start, end + 1),
+          );
+        }
+        for (const range of [
+          'bytes=999999-',
+          'bytes=2-1',
+          'bytes=0-1,3-4',
+          'bad',
+        ]) {
+          const res = await fetch(publicUrl, { headers: { Range: range } });
+          assert.equal(res.status, 416);
+          assert.equal(
+            res.headers.get('content-range'),
+            `bytes */${bytes.length}`,
+          );
+        }
+        for (const id of [audio.id, audio.storage_key, randomUUID()])
+          await request('GET', `/public/media/${id}`, { status: 404 });
+        await request(
+          'GET',
+          `/workspaces/${owner.id}/media/${audio.id}/content`,
+          { status: 401 },
+        );
+        const unpublished = await request(
+          'POST',
+          `/episodes/${e.id}/unpublish`,
+          { token },
+        );
+        assert.equal(unpublished.episode.status, 'archived');
+        assert.equal(unpublished.publication.active, false);
+        await request('POST', `/episodes/${e.id}/unpublish`, { token });
+        assert.equal((await fetch(publicUrl, { method: 'HEAD' })).status, 200);
+        await request('PATCH', `/episodes/${e.id}`, {
+          token,
+          body: {
+            title: 'Edited draft',
+            description: 'Changed draft',
+            primary_audio_asset_id: null,
+          },
+        });
+        await request('DELETE', `/episodes/${e.id}`, { token, status: 409 });
+        await request('DELETE', `/workspaces/${owner.id}/media/${audio.id}`, {
+          token,
+          status: 409,
+        });
+        await assert.rejects(
+          pool.query('DELETE FROM episodes WHERE id=$1', [e.id]),
+          { code: '23514' },
+        );
+        await assert.rejects(
+          pool.query('DELETE FROM media_assets WHERE id=$1', [audio.id]),
+          { code: '23503' },
+        );
+        await assert.rejects(
+          pool.query(
+            "UPDATE publishable_media SET state='retired' WHERE id=$1",
+            [p.representation_id],
+          ),
+          { code: '23503' },
+        );
+        await assert.rejects(
+          pool.query('DELETE FROM publishable_media WHERE id=$1', [
+            p.representation_id,
+          ]),
+          { code: '23514' },
+        );
+        await assert.rejects(
+          pool.query(
+            "UPDATE episode_publications SET title='Tampered' WHERE episode_id=$1",
+            [e.id],
+          ),
+          { code: '23514' },
+        );
+        await assert.rejects(
+          pool.query('DELETE FROM episode_publications WHERE episode_id=$1', [
+            e.id,
+          ]),
+          { code: '23514' },
+        );
+        await assert.rejects(
+          pool.query('UPDATE episodes SET guid=$1 WHERE id=$2', [
+            randomUUID(),
+            e.id,
+          ]),
+          { code: '23514' },
+        );
+        await assert.rejects(
+          pool.query('UPDATE media_assets SET storage_key=$1 WHERE id=$2', [
+            randomUUID(),
+            audio.id,
+          ]),
+          { code: '23514' },
+        );
+        const republished = await request('POST', operation, { token });
+        assert.equal(republished.publication.title, p.title);
+        assert.equal(republished.publication.media_url, p.media_url);
+        assert.equal(republished.publication.published_at, p.published_at);
+        assert.equal(republished.episode.guid, e.guid);
+        assert.equal(republished.publication.active, true);
+        await request('PATCH', `/episodes/${e.id}`, {
+          token,
+          body: { status: 'archived' },
+        });
+        assert.equal(
+          (await request('GET', `/episodes/${e.id}/publication`, { token }))
+            .publication.active,
+          false,
+        );
+        // Missing storage reports a retryable problem without corrupting publication state.
+        const { rename } = await import('node:fs/promises');
+        await rename(
+          join(mediaDirectory, audio.storage_key),
+          join(mediaDirectory, audio.storage_key + '.held'),
+        );
+        try {
+          assert.equal(
+            (await request('GET', `/episodes/${e.id}/publication`, { token }))
+              .ready,
+            false,
+          );
+          await request('POST', operation, { token, status: 422 });
+          await request('GET', p.media_url, { status: 503 });
+          assert.equal(
+            (await request('GET', `/episodes/${e.id}/publication`, { token }))
+              .publication.active,
+            false,
+          );
+        } finally {
+          await rename(
+            join(mediaDirectory, audio.storage_key + '.held'),
+            join(mediaDirectory, audio.storage_key),
+          );
+        }
+        await request('POST', operation, { token });
+        const retiredSource = await uploadAudio();
+        const blockedEpisode = (
+          await request('POST', `/shows/${s.id}/episodes`, {
+            token,
+            status: 201,
+            body: {
+              title: 'Retired representation',
+              description: 'A description',
+              primary_audio_asset_id: retiredSource.id,
+            },
+          })
+        ).episode;
+        // An unreferenced ready representation is never public and may only be removed after retirement.
+        const unused = randomUUID();
+        await pool.query(
+          `INSERT INTO publishable_media(id,workspace_id,source_media_asset_id,profile,storage_key,mime_type,size_bytes,duration_seconds) VALUES($1,$2,$3,'original-mp3-v1',$4,'audio/mpeg',$5,$6)`,
+          [
+            unused,
+            owner.id,
+            retiredSource.id,
+            retiredSource.storage_key,
+            retiredSource.size_bytes,
+            retiredSource.duration_seconds,
+          ],
+        );
+        await request('GET', `/public/media/${unused}`, { status: 404 });
+        await pool.query(
+          "UPDATE publishable_media SET state='retired' WHERE id=$1",
+          [unused],
+        );
+        await assert.rejects(
+          pool.query("UPDATE publishable_media SET state='ready' WHERE id=$1", [
+            unused,
+          ]),
+          { code: '23514' },
+        );
+        assert.equal(
+          (
+            await request('GET', `/episodes/${blockedEpisode.id}/publication`, {
+              token,
+            })
+          ).ready,
+          false,
+        );
+        await request('POST', `/episodes/${blockedEpisode.id}/publish`, {
+          token,
+          status: 422,
+        });
+        await pool.query('DELETE FROM publishable_media WHERE id=$1', [unused]);
       },
     );
     await t.test(

@@ -1,5 +1,69 @@
 # Foundation verification
 
+## 2026-09-28 — Mac handoff and Milestone 006
+
+This section supersedes the historical Windows/WSL environment notes below.
+The Mac is now the primary development environment; do not use the retired WSL
+browser-library override. Plain `npm run test:e2e` launches native macOS Chromium.
+
+Handoff verified `/Users/rohamcarrion/Developer/CarrionNetwork`, origin
+`git@github.com:rohamcarrion-cloud/CarrionNetwork.git`, clean `main` at `207c55d`,
+and zero ahead/behind after `git fetch origin`. Node v26.4.0 on darwin/arm64
+satisfies >=22.22.0; npm 12.0.2 and `npm ls --depth=0` reported the locked dependency
+tree without missing/invalid packages. No dependency or Mac-only configuration
+changes were required. `LD_LIBRARY_PATH` was unset. Docker PostgreSQL 17 was healthy
+on loopback port 5434. The new Mac database initially had no migration ledger;
+applying 001–005 initialized it successfully, then `db:check` passed. Baseline:
+8 backend tests, 14 API results, 21 frontend tests, types, build and all 8 existing
+browser workflows passed before implementation.
+
+| Final gate | Result |
+| --- | --- |
+| `db:migrate`, repeat, `db:check` | Six migrations; rerun no-op; separate-process ledger check passes |
+| Fresh/populated migration verification | 006 applies fresh and over populated 005; image/audio rows, both covers, audio association, GUID and historical publication preserved |
+| 006 rollback | Injected failure after 006 SQL rolls back its tables and ledger; unmodified migration then applies successfully |
+| Migration durability | New connections, stable ledger timestamps, ordered 007–009 probes, rollback, repaired retry and missing-file detection pass |
+| `npm test` | 8 passed |
+| `npm run test:integration` | 16 passed (parent plus 15 subtests), no failures/skips |
+| `npm run test:web` | 26 passed |
+| `npm run typecheck` | Passed |
+| `npm run format:check` | Passed |
+| `npm run build` | Passed |
+| `npm run test:e2e` | 10 passed: 5 desktop + 5 mobile Chromium workflows |
+
+Publishing coverage includes authorization, missing metadata/audio, source/workspace
+constraints, ready state, concurrent retry deduplication, snapshot immutability,
+stable GUID/time/URL, unpublish/archive/republish, protected Episode/source/representation
+deletion, irreversible unused retirement, missing-object failure and recovery.
+Anonymous public GET/HEAD/ranges resolve only retained ready representations.
+Original asset IDs/storage keys and unpublished representations cannot resolve;
+private delivery still requires authentication. Full/open/suffix/clamped/invalid
+ranges and HEAD metadata/body behavior are covered. Existing CRUD, image, audio,
+cover, authentication and lifecycle assertions remain in place; old generic-PATCH
+publishing assertions now require the explicit validated operation.
+
+Frontend coverage adds readiness/validation, publish, failure/retry, unpublish,
+republish, stable snapshot display, unavailable media and readiness-read retries.
+Browser acceptance covers Account → Show → artwork → Episode → upload/assign MP3 →
+save → publish → reload/session restore → unpublish → republish, plus public HEAD,
+Range and private path rejection. Prior image/audio workflows and both localhost
+hostnames still pass. Desktop/mobile publishing screenshots were inspected and
+have no horizontal overflow. Browser fixtures and screenshots remain ignored.
+
+During development the new browser test filled a title before navigation completed;
+waiting for the new-editor heading fixed the race. Invalid `exact` options in new
+Testing Library role selectors were removed. Neither issue weakened assertions.
+Playwright emits only the existing NO_COLOR/FORCE_COLOR warning. Browser coverage
+is native macOS Chromium and Pixel 7 emulation, not physical devices or Safari.
+Rollback checks are transactional tests, not down-migration or backup recovery.
+
+See [Publishing architecture](PUBLISHING_ARCHITECTURE.md) for retention and future
+boundaries. RSS, distribution, processing/transcoding, CDN, automated scheduling,
+analytics, emergency takedown and production deployment remain unimplemented.
+
+## Historical verification records
+
+
 
 ## Media Library Foundation — September 28, 2026
 
@@ -50,7 +114,7 @@ were completed afterward.
 Browser command in this WSL environment:
 
 ```bash
-LD_LIBRARY_PATH=/tmp/carrion-browser-libs/extracted/usr/lib/x86_64-linux-gnu npm run test:e2e
+# Retired WSL-only command; use plain npm run test:e2e on this Mac.
 ```
 
 Remaining limits: previews use original image bytes scaled with CSS; no generated
@@ -233,7 +297,7 @@ Safari, or Firefox certification.
 To repeat the browser run in this session without a system library install:
 
 ```bash
-LD_LIBRARY_PATH=/tmp/carrion-browser-libs/extracted/usr/lib/x86_64-linux-gnu npm run test:e2e
+# Retired WSL-only command; use plain npm run test:e2e on this Mac.
 ```
 
 The temporary library path is machine/session-specific and is not a project
@@ -305,7 +369,7 @@ runs passed. Chromium still needs the previously documented WSL libraries. The
 successful browser command was:
 
 ```bash
-LD_LIBRARY_PATH=/tmp/carrion-browser-libs/extracted/usr/lib/x86_64-linux-gnu npm run test:e2e
+# Retired WSL-only command; use plain npm run test:e2e on this Mac.
 ```
 
 An initial browser test used an exact text-label selector for a select whose label
@@ -365,7 +429,7 @@ emulation, including localhost/127.0.0.1 proxy checks. Browser metadata is asser
 audible output, physical devices, Safari and Firefox are not certified.
 
 Commands requiring local network access ran with sandbox approval. Chromium used
-`LD_LIBRARY_PATH=/tmp/carrion-browser-libs/extracted/usr/lib/x86_64-linux-gnu` as in
+the now-retired WSL library override as in
 prior milestones. npm installed `mpg123-decoder` successfully and reported zero
 known vulnerabilities. No FFmpeg, cloud provider or processing pipeline was added.
 See [Audio architecture](AUDIO_ARCHITECTURE.md) for bounded in-memory uploads,

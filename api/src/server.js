@@ -14,6 +14,7 @@ import { pool, query } from './db.js';
 import { title, uuid } from './validation.js';
 import { permission, save, list, remove } from './domain.js';
 import * as media from './media.js';
+import * as publishing from './publishing.js';
 import { filesystemStorage } from './storage.js';
 
 const scrypt = promisify(scryptCallback);
@@ -73,6 +74,48 @@ async function requireUser(request) {
   );
   if (!result.rowCount) fail(401, 'Session expired or invalid');
   return result.rows[0];
+}
+async function deliverMedia(
+  request,
+  response,
+  row,
+  cache = 'private, no-store',
+) {
+  const size = Number(row.size_bytes);
+  let range;
+  try {
+    range = byteRange(
+      request.method === 'HEAD' ? undefined : request.headers.range,
+      size,
+    );
+  } catch {
+    response.writeHead(416, {
+      'Content-Range': `bytes */${size}`,
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': cache,
+    });
+    return response.end();
+  }
+  response.writeHead(range ? 206 : 200, {
+    'Content-Type': row.mime_type,
+    'Content-Length': range ? range.end - range.start + 1 : size,
+    'Accept-Ranges': 'bytes',
+    ...(range
+      ? { 'Content-Range': `bytes ${range.start}-${range.end}/${size}` }
+      : {}),
+    'Cache-Control': cache,
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': "default-src 'none'",
+  });
+  if (request.method === 'HEAD') return response.end();
+  try {
+    await pipeline(
+      filesystemStorage().stream(row.storage_key, range),
+      response,
+    );
+  } catch {
+    response.destroy();
+  }
 }
 async function handle(request, response) {
   const origin = process.env.WEB_ORIGIN;
@@ -138,6 +181,15 @@ async function handle(request, response) {
     const { password_hash: ignored, ...user } = found.rows[0];
     return send(response, 200, { token, user });
   }
+  const publicRoute = /^\/public\/media\/([^/]+)$/.exec(path);
+  if (publicRoute && ['GET', 'HEAD'].includes(request.method)) {
+    return deliverMedia(
+      request,
+      response,
+      await publishing.publicMedia(uuid(publicRoute[1])),
+      'no-store',
+    );
+  }
   const user = await requireUser(request);
   if (request.method === 'GET' && path === '/auth/me')
     return send(response, 200, { user });
@@ -166,37 +218,7 @@ async function handle(request, response) {
     } else {
       const row = await media.asset(uuid(mediaRoute[2]), workspaceId);
       if (request.method === 'GET' && mediaRoute[3]) {
-        const size = Number(row.size_bytes);
-        let range;
-        try {
-          range = byteRange(request.headers.range, size);
-        } catch {
-          response.writeHead(416, {
-            'Content-Range': `bytes */${size}`,
-            'Accept-Ranges': 'bytes',
-            'Cache-Control': 'private, no-store',
-          });
-          return response.end();
-        }
-        response.writeHead(range ? 206 : 200, {
-          'Content-Type': row.mime_type,
-          'Content-Length': range ? range.end - range.start + 1 : size,
-          'Accept-Ranges': 'bytes',
-          ...(range
-            ? { 'Content-Range': `bytes ${range.start}-${range.end}/${size}` }
-            : {}),
-          'Cache-Control': 'private, no-store',
-          'X-Content-Type-Options': 'nosniff',
-          'Content-Security-Policy': "default-src 'none'",
-        });
-        try {
-          await pipeline(
-            filesystemStorage().stream(row.storage_key, range),
-            response,
-          );
-        } catch {
-          response.destroy();
-        }
+        await deliverMedia(request, response, row);
         return;
       }
       if (!mediaRoute[3]) {
@@ -249,6 +271,19 @@ async function handle(request, response) {
         ),
       });
   }
+  const operation =
+    /^\/episodes\/([^/]+)\/(publish|unpublish|publication)$/.exec(path);
+  if (operation) {
+    const id = uuid(operation[1]);
+    if (operation[2] === 'publication' && request.method === 'GET')
+      return send(response, 200, await publishing.readiness(id, user));
+    if (operation[2] !== 'publication' && request.method === 'POST')
+      return send(
+        response,
+        200,
+        await publishing.publish(id, user, operation[2] === 'unpublish'),
+      );
+  }
   const item = /^\/(shows|episodes|seasons)\/([^/]+)$/.exec(path);
   if (item) {
     const table = item[1],
@@ -294,6 +329,7 @@ export const server = http.createServer(async (request, response) => {
     if (status === 500) console.error(error);
     if (!response.headersSent)
       send(response, status, {
+        ...(error.issues ? { code: error.kind, issues: error.issues } : {}),
         error:
           status === 500
             ? 'Internal server error'

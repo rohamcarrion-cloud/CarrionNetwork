@@ -69,3 +69,19 @@ export interface MediaAsset {
   created_at: string;
   updated_at: string;
 }
+
+export interface PublicationState {
+  ready: boolean;
+  issues: Array<{ field: string; message: string }>;
+  publication: null | {
+    episode_id: string;
+    representation_id: string;
+    guid: string;
+    title: string;
+    description: string;
+    published_at: string;
+    active: boolean;
+    state: 'ready' | 'retired';
+    media_url: string;
+  };
+}
