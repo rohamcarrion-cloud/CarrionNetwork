@@ -1,3 +1,5 @@
+import { pipeline } from 'node:stream/promises';
+import { byteRange } from './range.js';
 import http from 'node:http';
 import {
   randomBytes,
@@ -164,15 +166,38 @@ async function handle(request, response) {
     } else {
       const row = await media.asset(uuid(mediaRoute[2]), workspaceId);
       if (request.method === 'GET' && mediaRoute[3]) {
-        const bytes = await filesystemStorage().get(row.storage_key);
-        response.writeHead(200, {
+        const size = Number(row.size_bytes);
+        let range;
+        try {
+          range = byteRange(request.headers.range, size);
+        } catch {
+          response.writeHead(416, {
+            'Content-Range': `bytes */${size}`,
+            'Accept-Ranges': 'bytes',
+            'Cache-Control': 'private, no-store',
+          });
+          return response.end();
+        }
+        response.writeHead(range ? 206 : 200, {
           'Content-Type': row.mime_type,
-          'Content-Length': bytes.length,
+          'Content-Length': range ? range.end - range.start + 1 : size,
+          'Accept-Ranges': 'bytes',
+          ...(range
+            ? { 'Content-Range': `bytes ${range.start}-${range.end}/${size}` }
+            : {}),
           'Cache-Control': 'private, no-store',
           'X-Content-Type-Options': 'nosniff',
           'Content-Security-Policy': "default-src 'none'",
         });
-        return response.end(bytes);
+        try {
+          await pipeline(
+            filesystemStorage().stream(row.storage_key, range),
+            response,
+          );
+        } catch {
+          response.destroy();
+        }
+        return;
       }
       if (!mediaRoute[3]) {
         if (request.method === 'GET')

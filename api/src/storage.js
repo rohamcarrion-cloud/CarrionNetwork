@@ -1,7 +1,9 @@
+import { createReadStream } from 'node:fs';
 import { mkdir, writeFile, readFile, unlink } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 
-// Adapter contract: put(key, bytes), get(key), delete(key). No public paths.
+// Adapter contract: put(key, bytes), get(key), stream(key, {start,end}?), delete(key).
+// Inclusive byte offsets; provider implementations must preserve these semantics.
 export function filesystemStorage(
   root = process.env.MEDIA_STORAGE_DIR || './var/media',
 ) {
@@ -15,6 +17,7 @@ export function filesystemStorage(
       await mkdir(directory, { recursive: true, mode: 0o700 });
       await writeFile(path(key), bytes, { flag: 'wx', mode: 0o600 });
     },
+    stream: (key, range) => createReadStream(path(key), range || {}),
     get: (key) => readFile(path(key)),
     async delete(key) {
       try {

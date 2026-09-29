@@ -323,3 +323,51 @@ are documented in [PODCAST_DOMAIN.md](PODCAST_DOMAIN.md). Collections currently
 load all API pages for Studio lists; incremental rendering is a future scale task.
 No new packages were needed. The environment does not expose usable Git metadata,
 so verification is against the files in the shared workspace, not a commit diff.
+
+## 2026-09-28 — Podcast Audio Foundation
+
+Migration `005_episode_audio.sql` is applied to the local database; a subsequent
+`db:migrate` is a no-op and `db:check` verifies all five ledger entries. Migrations
+001–004 remain unchanged. Integration verification upgrades a populated 004 schema
+and compares the existing image row and Episode cover relationship before/after
+005. Separate connections verify ledger durability; disposable probe migrations
+006–008 verify ordering, rollback of SQL and ledger, repaired retry and missing-file
+detection. This is transactional failure testing, not backup/power-loss recovery.
+
+| Gate | Result |
+| --- | --- |
+| `npm run db:migrate` | Passed; 005 applied, final rerun no-op |
+| `npm run db:check` | Passed; five migrations verified |
+| `npm test` | Passed; three test files, including MP3 validation/ranges and existing images |
+| `npm run test:integration` | 14 passed, zero failures/skips (parent plus 13 subtests) |
+| `npm run test:web` | 21 passed |
+| `npm run typecheck` | Passed |
+| `npm run format:check` | Passed |
+| `npm run build` | Passed |
+| Desktop/mobile Playwright | Eight passed |
+
+Audio API checks cover valid MP3, MIME mismatch, unsupported/corrupt/empty content,
+configured size enforcement with Content-Length and chunked transfer, duration,
+workspace isolation, optional/assigned/replaced/detached primary audio, typed SQL
+and API FK rejection, protected references, unused deletion, authorized retrieval,
+and full/open/suffix/clamped/invalid HTTP ranges. Unit checks also exercise tagged
+MP3, variable bitrates, MPEG-2/2.5 sample rates and malformed range numbers. Original
+image validation, covers, authentication and podcast lifecycle tests remain intact.
+
+Frontend checks cover audio upload/filter controls, metadata, preview, retry after
+preview failure, upload/deletion errors, assignment, replacement and detachment.
+Retry buttons explicitly use button type to avoid submitting an enclosing editor.
+Browser acceptance runs Account → Library upload → HTML5 metadata load → Show →
+Episode assignment → save/reload → blocked referenced deletion → upload replacement
+→ retained old asset → detach → valid draft → unused deletion → account isolation.
+Existing image cover and domain workflows pass on both desktop Chromium and Pixel 7
+emulation, including localhost/127.0.0.1 proxy checks. Browser metadata is asserted;
+audible output, physical devices, Safari and Firefox are not certified.
+
+Commands requiring local network access ran with sandbox approval. Chromium used
+`LD_LIBRARY_PATH=/tmp/carrion-browser-libs/extracted/usr/lib/x86_64-linux-gnu` as in
+prior milestones. npm installed `mpg123-decoder` successfully and reported zero
+known vulnerabilities. No FFmpeg, cloud provider or processing pipeline was added.
+See [Audio architecture](AUDIO_ARCHITECTURE.md) for bounded in-memory uploads,
+approximate frame duration, private blob previews, format restrictions and deferred
+production/public RSS capabilities.

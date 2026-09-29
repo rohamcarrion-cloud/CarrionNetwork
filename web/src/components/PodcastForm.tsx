@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import type { PodcastInput, Season } from '../api/types';
-import { CoverPicker } from '../features/Media';
+import { AudioPicker, CoverPicker } from '../features/Media';
 import { ErrorNotice } from './ui';
 
 export function PodcastForm({
@@ -87,6 +87,12 @@ export function PodcastForm({
           onChange={(id) => update('cover_asset_id', id)}
           kind={kind}
         />
+        {kind === 'episode' && (
+          <AudioPicker
+            id={value('primary_audio_asset_id')}
+            onChange={(id) => update('primary_audio_asset_id', id)}
+          />
+        )}
         <label>
           Status
           <select

@@ -1,14 +1,16 @@
-# Media Library — Image Assets
+# Media Library — Images and Audio
 
 ## Boundaries
 
-The first library supports reusable, private JPEG, PNG and WebP still images.
+The library supports reusable, private JPEG, PNG and WebP still images and MP3 audio.
+See [Audio architecture](AUDIO_ARCHITECTURE.md) for migration 005, format validation,
+limits, typed Episode relationships and future public delivery boundaries.
 No audio processing, transcoding, RSS enclosures, distribution, analytics or
 monetization is implemented. There is no cloud-provider requirement.
 
 `api/src/media.js` owns upload validation, asset metadata and deletion policy.
-`api/src/storage.js` implements the asynchronous `put(key, bytes)`, `get(key)` and
-`delete(key)` contract using a private filesystem directory. Replace this adapter
+`api/src/storage.js` implements the asynchronous `put(key, bytes)`, `get(key)`,
+`stream(key, {start,end}?)` and `delete(key)` contract using a private filesystem directory. Replace this adapter
 with S3-compatible storage, R2 or B2 without changing show/episode business logic.
 The storage key is opaque, server-generated and independent of the filename.
 `MEDIA_STORAGE_DIR` defaults to `./var/media` relative to the API working directory.
@@ -28,8 +30,8 @@ Previous migrations remain unchanged.
 
 Assets have workspace, type, original filename, storage key, verified MIME,
 byte size, dimensions, alt text and timestamps. `asset_type` is extensible text;
-future audio, transcripts, documents and promotional assets can add their own
-validation and workflows. Uploads in this milestone always create `image` records.
+future transcripts, documents and promotional assets can add their own
+validation and workflows. Uploads create verified `image` or `audio` records. Audio adds duration; dimensions remain null.
 
 Shows and episodes have nullable `cover_asset_id`. Composite foreign keys enforce
 workspace and image type, not only asset existence. Episodes additionally carry
@@ -47,11 +49,11 @@ workspace ID equals their user ID; the Studio uses that mapping.
 
 | Method and path | Body / result |
 | --- | --- |
-| `POST /workspaces/:workspace/media?filename=cover.png` | Raw image bytes; image MIME Content-Type; returns `{asset}` (201) |
-| `GET /workspaces/:workspace/media` | `{items,pagination}`; image assets only |
+| `POST /workspaces/:workspace/media?filename=cover.png` | Raw image/MP3 bytes; matching MIME Content-Type; returns `{asset}` (201) |
+| `GET /workspaces/:workspace/media` | `{items,pagination}`; `type=all`, `type=image` or `type=audio`; default all |
 | `GET /workspaces/:workspace/media/:id` | `{asset}` metadata |
 | `PATCH /workspaces/:workspace/media/:id` | JSON `{alt_text}`; up to 2,000 characters |
-| `GET /workspaces/:workspace/media/:id/content` | Private authenticated original image bytes |
+| `GET /workspaces/:workspace/media/:id/content` | Private authenticated original bytes; single HTTP Range support |
 | `DELETE /workspaces/:workspace/media/:id` | 204; 409 if referenced by any show or episode |
 
 List supports limit 1–100 (default 24), nonnegative offset, sort `created_at`,
@@ -62,7 +64,7 @@ as an image UUID or null. Missing fields leave existing relationships unchanged.
 
 ## Validation and failure behavior
 
-Uploads are bounded to 10 MiB while reading, regardless of Content-Length.
+Image uploads are bounded to 10 MiB while reading, regardless of Content-Length.
 Sharp/libvips detects format and fully decodes pixels, rather than trusting a
 filename or header. Declared MIME must match detected JPEG/PNG/WebP. Images must
 be nonempty, at most 10,000 pixels per side and 40 million pixels total; animated,
@@ -81,8 +83,9 @@ across PostgreSQL and storage. Backups/restores must include both.
 Content is never exposed as a public directory or bearer token in a URL. Responses
 use private/no-store caching, nosniff and a restrictive CSP. Studio retrieves bytes
 through its authenticated API client and revokes object URLs on unmount/change.
-Limits are per request; global quotas, upload concurrency limits, request rate
-limiting and production operational hardening remain future work.
+Two concurrent uploads are allowed per API process. Global quotas, request rate
+limiting and production operational hardening remain future work. MP3 has its own
+configurable limit; see the audio document.
 
 ## Studio and future variants
 

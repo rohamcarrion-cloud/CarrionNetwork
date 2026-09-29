@@ -112,7 +112,7 @@ docker compose exec -T postgres psql -U carrion -d carrion_network \
 
 The earlier “0 rows” result was from the separate query for leftover temporary
 test databases; the ledger query returned `001_foundation.sql`. The current ledger has `001_foundation.sql`, `002_podcast_domain.sql`, and
-`003_publication_history.sql`, plus `004_media_assets.sql`. New migrations start at `005_description.sql`.
+`003_publication_history.sql`, plus `004_media_assets.sql` and `005_episode_audio.sql`. New migrations start at `006_description.sql`.
 Keep names zero-padded and ordered, keep applied files immutable, and never put
 `BEGIN`/`COMMIT` in them. The runner owns each transaction and reports “Applied”
 only after SQL and its tracking row commit together. See the regression coverage
@@ -172,12 +172,19 @@ Only never-published drafts can be deleted; shows containing episodes must be
 archived or emptied first. Scheduling and published status record editorial
 state only; they do not deliver media or create a public feed.
 
-Media Library supports private JPEG/PNG/WebP uploads, paginated browsing, previews,
+Media Library supports private JPEG/PNG/WebP and MP3 uploads, filtered/paginated browsing, previews,
 alt text and safe deletion. Shows and episodes select reusable workspace images;
-removing a cover preserves the asset. Uploads are limited to 10 MiB, 10,000 pixels
+removing a cover preserves the asset. Image uploads are limited to 10 MiB, 10,000 pixels
 per side and 40 megapixels. Open Media Library to upload, then choose the image
 in the show or episode editor and save. See [Media Library architecture](docs/MEDIA_LIBRARY_ARCHITECTURE.md)
 for API examples, storage/backup requirements, legacy data migration and future variants.
+Episodes optionally select one primary workspace audio asset. Upload or choose MP3
+in the Episode audio section, then save. Replacement/detachment preserve originals;
+referenced audio cannot be deleted. MP3 defaults to 100 MiB, configurable via
+`AUDIO_MAX_UPLOAD_BYTES`. Original private bytes use the same filesystem adapter
+and authenticated delivery with single HTTP byte-range support. Studio downloads
+previews on demand into temporary blob URLs. See [Audio architecture](docs/AUDIO_ARCHITECTURE.md)
+for format restrictions, metadata, resource limits and the future public delivery boundary.
 RSS, audio processing, delivery scheduling, distribution, analytics and monetization
 remain future milestones.
 

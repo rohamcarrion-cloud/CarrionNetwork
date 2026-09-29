@@ -4,6 +4,7 @@ export interface User {
   display_name: string;
 }
 export interface PodcastInput {
+  primary_audio_asset_id?: string | null;
   cover_asset_id?: string | null;
   title: string;
   description: string;
@@ -61,8 +62,9 @@ export interface MediaAsset {
   original_filename: string;
   mime_type: string;
   size_bytes: string;
-  width: number;
-  height: number;
+  duration_seconds?: number | null;
+  width: number | null;
+  height: number | null;
   alt_text: string;
   created_at: string;
   updated_at: string;

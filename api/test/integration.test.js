@@ -1,3 +1,4 @@
+import { silentMp3 } from './helpers/audio.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID, createHash } from 'node:crypto';
@@ -88,7 +89,51 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
             "UPDATE shows SET artwork_key='legacy-key' WHERE id=$1",
             [showId],
           );
-          const output = (await migrate()).stdout;
+          for (const name of [
+            '002_podcast_domain.sql',
+            '003_publication_history.sql',
+            '004_media_assets.sql',
+          ]) {
+            await copyFile(
+              fileURLToPath(new URL('../migrations/' + name, import.meta.url)),
+              join(directory, name),
+            );
+          }
+          const upgradeLogs = [];
+          await runMigrations(client, directory, {
+            log: (message) => upgradeLogs.push(message),
+          });
+          const imageId = randomUUID();
+          await client.query(
+            "INSERT INTO media_assets(id,workspace_id,storage_key,mime_type,size_bytes,width,height,original_filename) VALUES($1,$2,$3,'image/png',123,16,16,'existing.png')",
+            [imageId, userId, randomUUID()],
+          );
+          await client.query(
+            'UPDATE episodes SET cover_asset_id=$1 WHERE id=$2',
+            [imageId, episodeId],
+          );
+          const beforeImage = (
+            await client.query('SELECT * FROM media_assets WHERE id=$1', [
+              imageId,
+            ])
+          ).rows[0];
+          const output = upgradeLogs.join('\n') + (await migrate()).stdout;
+          const afterImage = (
+            await client.query('SELECT * FROM media_assets WHERE id=$1', [
+              imageId,
+            ])
+          ).rows[0];
+          assert.deepEqual(afterImage, {
+            ...beforeImage,
+            duration_seconds: null,
+          });
+          const upgradedEpisode = (
+            await client.query('SELECT * FROM episodes WHERE id=$1', [
+              episodeId,
+            ])
+          ).rows[0];
+          assert.equal(upgradedEpisode.cover_asset_id, imageId);
+          assert.equal(upgradedEpisode.primary_audio_asset_id, null);
           const legacy = (
             await client.query(
               "SELECT * FROM media_assets WHERE storage_key='legacy-key'",
@@ -171,6 +216,7 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
               '002_podcast_domain.sql',
               '003_publication_history.sql',
               '004_media_assets.sql',
+              '005_episode_audio.sql',
             ],
           );
           assert.ok(initial[0].applied_at instanceof Date);
@@ -201,12 +247,18 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
             ),
             join(directory, '004_media_assets.sql'),
           );
-          await writeFile(
-            join(directory, '005_probe.sql'),
-            'CREATE TABLE migration_probe (id integer PRIMARY KEY);',
+          await copyFile(
+            fileURLToPath(
+              new URL('../migrations/005_episode_audio.sql', import.meta.url),
+            ),
+            join(directory, '005_episode_audio.sql'),
           );
           await writeFile(
             join(directory, '006_probe.sql'),
+            'CREATE TABLE migration_probe (id integer PRIMARY KEY);',
+          );
+          await writeFile(
+            join(directory, '007_probe.sql'),
             'INSERT INTO migration_probe VALUES (1);',
           );
           await assert.rejects(
@@ -227,8 +279,9 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
               '002_podcast_domain.sql',
               '003_publication_history.sql',
               '004_media_assets.sql',
-              '005_probe.sql',
+              '005_episode_audio.sql',
               '006_probe.sql',
+              '007_probe.sql',
             ],
           );
           assert.equal(
@@ -241,14 +294,14 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
             1,
           );
           await writeFile(
-            join(directory, '007_failure.sql'),
+            join(directory, '008_failure.sql'),
             'CREATE TABLE rollback_probe (id integer); SELECT missing_migration_function();',
           );
           await assert.rejects(
             runMigrations(client, directory, options),
             /missing_migration_function/,
           );
-          assert.ok(!logs.includes('Applied 007_failure.sql'));
+          assert.ok(!logs.includes('Applied 008_failure.sql'));
           await client.end();
           client = await connect();
           assert.equal(
@@ -262,13 +315,13 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
           assert.equal(
             (
               await client.query(
-                "SELECT * FROM public.schema_migrations WHERE name='007_failure.sql'",
+                "SELECT * FROM public.schema_migrations WHERE name='008_failure.sql'",
               )
             ).rowCount,
             0,
           );
           await writeFile(
-            join(directory, '007_failure.sql'),
+            join(directory, '008_failure.sql'),
             'CREATE TABLE rollback_probe (id integer);',
           );
           await runMigrations(client, directory, options);
@@ -279,9 +332,9 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
                 checkOnly: true,
               })
             ).length,
-            7,
+            8,
           );
-          await rm(join(directory, '007_failure.sql'));
+          await rm(join(directory, '008_failure.sql'));
           await assert.rejects(
             runMigrations(client, directory, { ...options, checkOnly: true }),
             /Applied migration files missing/,
@@ -951,6 +1004,213 @@ test('PostgreSQL migrations and HTTP API', { timeout: 120_000 }, async (t) => {
         });
         await request('GET', path + '/' + b.id, { token });
         await request('DELETE', path + '/' + b.id, { token, status: 204 });
+      },
+    );
+    await t.test(
+      'audio validation, delivery, typed workspace relationships and lifecycle',
+      async () => {
+        const bytes = silentMp3();
+        const path = `/workspaces/${owner.id}/media`;
+        async function upload(
+          content = bytes,
+          mime = 'audio/mpeg',
+          status = 201,
+          auth = token,
+          workspace = owner.id,
+        ) {
+          const response = await fetch(
+            `${base}/workspaces/${workspace}/media?filename=../../episode.mp3`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${auth}`,
+                'Content-Type': mime,
+              },
+              body: content,
+            },
+          );
+          assert.equal(response.status, status);
+          return (await response.json()).asset;
+        }
+        await upload(bytes, 'audio/wav', 415);
+        await upload(bytes, 'image/png', 400);
+        await upload(Buffer.from('not audio'), 'audio/mpeg', 400);
+        await upload(bytes.subarray(0, bytes.length - 1), 'audio/mpeg', 400);
+        await upload(Buffer.alloc(0), 'audio/mpeg', 413);
+        process.env.AUDIO_MAX_UPLOAD_BYTES = '100';
+        try {
+          await upload(bytes, 'audio/mpeg', 413);
+          const chunked = await fetch(base + path + '?filename=oversized.mp3', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'audio/mpeg',
+            },
+            duplex: 'half',
+            body: (async function* () {
+              yield bytes.subarray(0, 50);
+              yield bytes.subarray(50);
+            })(),
+          });
+          assert.equal(chunked.status, 413);
+          assert.match((await chunked.json()).error, /Maximum upload/);
+        } finally {
+          delete process.env.AUDIO_MAX_UPLOAD_BYTES;
+        }
+        await upload(bytes, 'audio/mpeg', 401, '');
+        await upload(bytes, 'audio/mpeg', 404, outsiderToken);
+        const a = await upload(),
+          b = await upload();
+        assert.equal(a.asset_type, 'audio');
+        assert.equal(a.mime_type, 'audio/mpeg');
+        assert.equal(a.original_filename, 'episode.mp3');
+        assert.equal(a.width, null);
+        assert.equal(Number(a.size_bytes), bytes.length);
+        assert.ok(Math.abs(a.duration_seconds - (40 * 1152) / 44100) < 0.001);
+        const foreign = await upload(
+          bytes,
+          'audio/mpeg',
+          201,
+          outsiderToken,
+          outsider.id,
+        );
+        const image = await upload(
+          await sharp({
+            create: { width: 8, height: 8, channels: 3, background: 'red' },
+          })
+            .png()
+            .toBuffer(),
+          'image/png',
+        );
+        const audioList = await request('GET', path + '?type=audio', { token });
+        assert.ok(audioList.items.length >= 2);
+        assert.ok(audioList.items.every((a) => a.asset_type === 'audio'));
+        assert.ok(
+          (await request('GET', path + '?type=image', { token })).items.every(
+            (a) => a.asset_type === 'image',
+          ),
+        );
+        await request('GET', path + '?type=bad', { token, status: 400 });
+        const s = (
+          await request('POST', '/shows', {
+            token,
+            status: 201,
+            body: { title: 'Audio show' },
+          })
+        ).show;
+        const e = (
+          await request('POST', `/shows/${s.id}/episodes`, {
+            token,
+            status: 201,
+            body: { title: 'Audio episode' },
+          })
+        ).episode;
+        assert.equal(e.primary_audio_asset_id, null);
+        for (const id of [image.id, foreign.id]) {
+          await request('PATCH', `/episodes/${e.id}`, {
+            token,
+            status: 400,
+            body: { primary_audio_asset_id: id },
+          });
+          await assert.rejects(
+            pool.query(
+              'UPDATE episodes SET primary_audio_asset_id=$1 WHERE id=$2',
+              [id, e.id],
+            ),
+            { code: '23503' },
+          );
+        }
+        await request('PATCH', `/shows/${s.id}`, {
+          token,
+          status: 400,
+          body: { cover_asset_id: a.id },
+        });
+        await request('PATCH', `/episodes/${e.id}`, {
+          token,
+          body: { primary_audio_asset_id: a.id },
+        });
+        assert.equal(
+          (await request('GET', `/episodes/${e.id}`, { token })).episode
+            .primary_audio_asset_id,
+          a.id,
+        );
+        await request('DELETE', path + '/' + a.id, { token, status: 409 });
+        const contentUrl = base + path + '/' + a.id + '/content';
+        for (const [auth, status] of [
+          ['', 401],
+          [outsiderToken, 404],
+        ]) {
+          assert.equal(
+            (
+              await fetch(contentUrl, {
+                headers: {
+                  Authorization: `Bearer ${auth}`,
+                  Range: 'bytes=0-99',
+                },
+              })
+            ).status,
+            status,
+          );
+        }
+        const full = await fetch(contentUrl, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        assert.equal(full.status, 200);
+        assert.equal(full.headers.get('content-type'), 'audio/mpeg');
+        assert.equal(full.headers.get('accept-ranges'), 'bytes');
+        assert.deepEqual(Buffer.from(await full.arrayBuffer()), bytes);
+        for (const [range, start, end] of [
+          ['bytes=0-99', 0, 99],
+          ['bytes=100-', 100, bytes.length - 1],
+          ['bytes=-10', bytes.length - 10, bytes.length - 1],
+          ['bytes=0-999999', 0, bytes.length - 1],
+        ]) {
+          const response = await fetch(contentUrl, {
+            headers: { Authorization: `Bearer ${token}`, Range: range },
+          });
+          assert.equal(response.status, 206);
+          assert.equal(
+            response.headers.get('content-range'),
+            `bytes ${start}-${end}/${bytes.length}`,
+          );
+          assert.deepEqual(
+            Buffer.from(await response.arrayBuffer()),
+            bytes.subarray(start, end + 1),
+          );
+        }
+        for (const range of [
+          'bytes=999999-',
+          'bytes=4-2',
+          'bytes=-0',
+          'bytes=0-1,4-5',
+          'nonsense',
+        ]) {
+          const response = await fetch(contentUrl, {
+            headers: { Authorization: `Bearer ${token}`, Range: range },
+          });
+          assert.equal(response.status, 416);
+          assert.equal(
+            response.headers.get('content-range'),
+            `bytes */${bytes.length}`,
+          );
+        }
+        await request('PATCH', `/episodes/${e.id}`, {
+          token,
+          body: { primary_audio_asset_id: b.id },
+        });
+        await request('GET', path + '/' + a.id, { token });
+        await request('DELETE', path + '/' + b.id, { token, status: 409 });
+        await request('PATCH', `/episodes/${e.id}`, {
+          token,
+          body: { primary_audio_asset_id: null },
+        });
+        assert.equal(
+          (await request('GET', `/episodes/${e.id}`, { token })).episode.status,
+          'draft',
+        );
+        for (const id of [a.id, b.id, image.id])
+          await request('DELETE', path + '/' + id, { token, status: 204 });
+        await request('GET', path + '/' + a.id, { token, status: 404 });
       },
     );
     await t.test(

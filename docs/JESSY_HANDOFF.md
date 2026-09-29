@@ -25,7 +25,7 @@ Start PostgreSQL, run `npm run db:migrate` and `npm run db:check`, then run
 - Studio show/episode editors, lifecycle controls, optional season management,
   show selection, status filters, and API error handling.
 - Migrations `002_podcast_domain.sql` and `003_publication_history.sql`; `001`
-  remains untouched. `004_media_assets.sql` adds the Media Library; future migrations begin at `005`.
+  remains untouched. `004_media_assets.sql` adds the Media Library; `005_episode_audio.sql` adds audio; future migrations begin at `006`.
 
 See [VERIFICATION](VERIFICATION.md) for gate results and WSL browser setup.
 The database suites create and clean disposable databases. Preserve all current
@@ -67,3 +67,22 @@ current show memberships must not silently grant workspace-wide access.
 
 Production service hardening and backup/restore testing remain separate work;
 this milestone provides the domain foundation, not a deployment certification.
+
+
+## Podcast Audio Foundation — 2026-09-28
+
+MP3 original uploads now share the Media Library and filesystem adapter with images.
+Episodes have one optional, workspace/type-constrained primary audio reference.
+Creators can browse/filter, upload, preview, assign, replace, detach and safely
+delete unused audio. Image cover behavior remains supported.
+
+Read [Audio architecture](AUDIO_ARCHITECTURE.md) before changing upload limits,
+formats or delivery. Default audio limit is 100 MiB (`AUDIO_MAX_UPLOAD_BYTES`);
+validation checks frames and decodes in a bounded worker without FFmpeg. Original
+audio is private. Range-capable API delivery does not make files public; Studio
+previews use authenticated downloads and temporary blob URLs.
+
+Original assets must not be permanently coupled to public RSS enclosures. Future
+processing/publishable representations and public delivery require separate design.
+RSS, distribution, processing, transcripts, chapters, analytics and monetization
+remain deferred. See [Verification](VERIFICATION.md) for milestone gate results.

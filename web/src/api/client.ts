@@ -56,8 +56,15 @@ export function createApi(
               ? undefined
               : JSON.stringify(options.body),
         signal: options.signal
-          ? AbortSignal.any([options.signal, AbortSignal.timeout(15000)])
-          : AbortSignal.timeout(15000),
+          ? AbortSignal.any([
+              options.signal,
+              AbortSignal.timeout(
+                options.body instanceof File || options.binary ? 300000 : 15000,
+              ),
+            ])
+          : AbortSignal.timeout(
+              options.body instanceof File || options.binary ? 300000 : 15000,
+            ),
       });
     } catch (error) {
       if (options.signal?.aborted) throw error;
@@ -107,19 +114,20 @@ export function createApi(
       offset = 0,
       sort = 'created_at',
       signal?: AbortSignal,
+      type = 'image',
     ) =>
       request<{ items: MediaAsset[]; pagination: { has_more: boolean } }>(
-        `/workspaces/${workspace}/media?limit=24&offset=${offset}&sort=${sort}`,
+        `/workspaces/${workspace}/media?limit=24&offset=${offset}&sort=${sort}&type=${type}`,
         { signal },
       ),
     asset: (workspace: string, id: string) =>
       request<{ asset: MediaAsset }>(`/workspaces/${workspace}/media/${id}`),
-    image: (workspace: string, id: string, signal?: AbortSignal) =>
+    mediaContent: (workspace: string, id: string, signal?: AbortSignal) =>
       request<Blob>(`/workspaces/${workspace}/media/${id}/content`, {
         binary: true,
         signal,
       }),
-    uploadImage: (workspace: string, file: File) =>
+    uploadMedia: (workspace: string, file: File) =>
       request<{ asset: MediaAsset }>(
         `/workspaces/${workspace}/media?filename=${encodeURIComponent(file.name)}`,
         { method: 'POST', body: file },

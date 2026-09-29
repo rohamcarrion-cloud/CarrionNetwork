@@ -75,6 +75,7 @@ const schemas = {
   },
   episodes: {
     ...fields,
+    primary_audio_asset_id: (v) => (v === null ? null : uuid(v)),
     title: (v) => title(v, 250),
     status: (v) => choice(v, ['draft', 'scheduled', 'published', 'archived']),
     season_id: (v) => (v === null ? null : uuid(v)),
@@ -152,6 +153,16 @@ async function saveRecord(query, table, data, existing, parent, user) {
     )
       fail(400, 'Choose an image from this workspace');
   }
+  if (
+    values.primary_audio_asset_id &&
+    !(
+      await query(
+        "SELECT a.id FROM media_assets a JOIN workspaces w ON w.id=a.workspace_id WHERE a.id=$1 AND a.workspace_id=$2 AND a.asset_type='audio' AND w.owner_id=$3",
+        [values.primary_audio_asset_id, parent.workspace_id, user.id],
+      )
+    ).rowCount
+  )
+    fail(400, 'Choose audio from this workspace');
   if (!existing && !values.title) fail(400, 'Title required');
   if (table === 'seasons' && !merged.season_number)
     fail(400, 'Season number required');

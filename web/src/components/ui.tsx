@@ -37,7 +37,7 @@ export function ErrorNotice({
     <div className="notice error" role="alert">
       <span>{message}</span>
       {retry && (
-        <button className="button secondary" onClick={retry}>
+        <button type="button" className="button secondary" onClick={retry}>
           Try again
         </button>
       )}

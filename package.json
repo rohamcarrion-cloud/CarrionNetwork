@@ -20,6 +20,7 @@
     "format:check": "prettier --check web/src web/e2e web/*.ts web/*.json web/index.html api/src api/test"
   },
   "dependencies": {
+    "mpg123-decoder": "^1.0.3",
     "pg": "^8.16.3",
     "sharp": "^0.35.5"
   },

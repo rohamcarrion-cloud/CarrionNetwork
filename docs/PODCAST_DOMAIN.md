@@ -67,7 +67,7 @@ if an archive is later edited. PATCH operations lock the record in a transaction
 to validate transitions against the latest committed state.
 
 **These are editorial records, not evidence of delivery.** There is no scheduler,
-public episode endpoint, RSS generation, directory submission, or audio delivery.
+public episode endpoint, RSS generation, directory submission, or public audio delivery. Private Studio audio delivery is available.
 A scheduled time passing does not automatically publish. Studio states this
 limitation. Future publishing services must add media-readiness checks and
 transactional outbox jobs; destination delivery state must remain separate from
@@ -127,10 +127,12 @@ select existing images or upload to their personal workspace. Episodes may selec
 custom artwork; a null cover indicates future show-artwork fallback without a
 copied asset. Object keys and metadata live on `media_assets`, never image blobs
 or paths on show/episode records. Legacy show artwork keys are archived for manual
-import; legacy audio columns remain reserved. See
+import; legacy audio columns remain untouched and unused by the new media path. See
 [Media Library architecture](MEDIA_LIBRARY_ARCHITECTURE.md) for the implemented
-storage, authorization, validation and deletion contracts. Future primary audio
-and other attachments require their own typed relationships and processing rules.
+storage, authorization, validation and deletion contracts. Migration 005 adds nullable `primary_audio_asset_id` with a composite workspace/audio
+foreign key. Drafts need no audio. Assignment, replacement and detachment are
+independent of asset deletion; references block deletion. See [Audio architecture](AUDIO_ARCHITECTURE.md).
+Original uploads remain distinct from future processed/publishable representations.
 
 Transcripts and chapters should be versioned episode child resources, optionally
 referencing source/derived assets. A show has a feed configuration resource;
@@ -144,7 +146,8 @@ remain future milestones.
 
 `001_foundation.sql` is unchanged. `002` adds/backfills the core domain. `003`
 protects publication history. `004` upgrades media metadata and adds image covers.
-Applied migrations are immutable; the next change uses `005_...sql`. The existing runner wraps each file and its ledger insertion
+`005` adds original MP3 assets and primary Episode audio.
+Applied migrations are immutable; the next change uses `006_...sql`. The existing runner wraps each file and its ledger insertion
 in one transaction, using a session advisory lock. Failure rolls back that file;
 already committed earlier files remain applied. There are no automatic destructive
 down migrations. Production recovery requires a reviewed forward repair or a tested

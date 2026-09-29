@@ -425,3 +425,193 @@ it('selects and detaches a cover without deleting the image', async () => {
   );
   expect(requests.some((r) => r.init.method === 'DELETE')).toBe(false);
 });
+
+it('uploads and browses audio, previews it and reports upload and deletion errors', async () => {
+  const asset = {
+    id: 'audio-1',
+    asset_type: 'audio',
+    original_filename: 'podcast.mp3',
+    duration_seconds: 60,
+    size_bytes: '12000',
+    created_at: '2026-09-28',
+    alt_text: '',
+  };
+  let uploaded = false,
+    failUpload = false;
+  vi.stubGlobal(
+    'URL',
+    Object.assign(URL, {
+      createObjectURL: vi.fn(() => 'blob:audio'),
+      revokeObjectURL: vi.fn(),
+    }),
+  );
+  custom = (path, init) => {
+    if (path.endsWith('/content')) return new Response(new Blob(['audio']));
+    if (path === '/workspaces/owner/media') {
+      if (init.method === 'POST') {
+        if (failUpload) return json({ error: 'Invalid MP3 content' }, 400);
+        uploaded = true;
+        return json({ asset }, 201);
+      }
+      return json({
+        items: uploaded ? [asset] : [],
+        pagination: { has_more: false },
+      });
+    }
+    if (path.endsWith('/media/audio-1'))
+      return json({ error: 'Audio is used by an episode' }, 409);
+  };
+  const interaction = userEvent.setup();
+  open('/media', true);
+  await interaction.selectOptions(
+    await screen.findByLabelText('Media type'),
+    'audio',
+  );
+  await screen.findByText('No media yet. Upload your first audio file.');
+  expect(screen.queryByLabelText('Upload image')).not.toBeInTheDocument();
+  await interaction.upload(
+    screen.getByLabelText('Upload audio'),
+    new File(['audio'], 'podcast.mp3', { type: 'audio/mpeg' }),
+  );
+  await screen.findByText('podcast.mp3');
+  await screen.findByText(/MP3 · 60.0 seconds/);
+  expect(screen.queryByText('Save alt text')).not.toBeInTheDocument();
+  await interaction.click(
+    screen.getByRole('button', { name: 'Preview audio' }),
+  );
+  await waitFor(() =>
+    expect(screen.getByLabelText('Audio preview')).toHaveAttribute(
+      'src',
+      'blob:audio',
+    ),
+  );
+  await interaction.click(screen.getByRole('button', { name: 'Delete audio' }));
+  await interaction.click(
+    screen.getByRole('button', { name: 'Confirm delete audio' }),
+  );
+  await screen.findByText('Audio is used by an episode');
+  failUpload = true;
+  await interaction.upload(
+    screen.getByLabelText('Upload audio'),
+    new File(['bad'], 'bad.mp3', { type: 'audio/mpeg' }),
+  );
+  await screen.findByText('Invalid MP3 content');
+  await interaction.selectOptions(screen.getByLabelText('Media type'), 'all');
+  expect(screen.getByLabelText('Upload image')).toBeInTheDocument();
+  expect(screen.getByLabelText('Upload audio')).toBeInTheDocument();
+});
+
+it('assigns, replaces and detaches episode audio while preserving assets', async () => {
+  let selected = 'audio-1';
+  custom = (path, init) => {
+    if (path.endsWith('/media'))
+      return json({
+        items: [
+          {
+            id: selected,
+            asset_type: 'audio',
+            original_filename: `${selected}.mp3`,
+            duration_seconds: 1,
+            size_bytes: '1000',
+            created_at: '2026-09-28',
+            alt_text: '',
+          },
+        ],
+        pagination: { has_more: false },
+      });
+    if (path === `/episodes/${episode.id}` && init.method === 'PATCH')
+      return json({
+        episode: { ...episode, ...JSON.parse(init.body as string) },
+      });
+  };
+  const interaction = userEvent.setup();
+  open(`/shows/${show.id}/episodes/${episode.id}`, true);
+  await interaction.click(
+    await screen.findByRole('button', { name: 'Choose or upload audio' }),
+  );
+  expect(screen.queryByLabelText('Upload image')).not.toBeInTheDocument();
+  await interaction.click(
+    await screen.findByRole('button', { name: 'Select audio-1.mp3' }),
+  );
+  await interaction.click(screen.getByRole('button', { name: 'Save changes' }));
+  await screen.findByText('Episode saved.');
+  selected = 'audio-2';
+  await interaction.click(
+    screen.getByRole('button', { name: 'Replace audio' }),
+  );
+  await interaction.click(
+    await screen.findByRole('button', { name: 'Select audio-2.mp3' }),
+  );
+  await interaction.click(screen.getByRole('button', { name: 'Save changes' }));
+  await waitFor(() =>
+    expect(
+      requests.some((r) =>
+        String(r.init.body).includes('"primary_audio_asset_id":"audio-2"'),
+      ),
+    ).toBe(true),
+  );
+  await interaction.click(screen.getByRole('button', { name: 'Detach audio' }));
+  await interaction.click(screen.getByRole('button', { name: 'Save changes' }));
+  await waitFor(() =>
+    expect(
+      requests.some((r) =>
+        String(r.init.body).includes('"primary_audio_asset_id":null'),
+      ),
+    ).toBe(true),
+  );
+  expect(
+    requests.some((r) =>
+      String(r.init.body).includes('"primary_audio_asset_id":"audio-1"'),
+    ),
+  ).toBe(true);
+  expect(requests.some((r) => r.init.method === 'DELETE')).toBe(false);
+});
+
+it('retries a failed authenticated audio preview', async () => {
+  let attempts = 0;
+  vi.stubGlobal(
+    'URL',
+    Object.assign(URL, {
+      createObjectURL: vi.fn(() => 'blob:retry'),
+      revokeObjectURL: vi.fn(),
+    }),
+  );
+  custom = (path) => {
+    if (path.endsWith('/media'))
+      return json({
+        items: [
+          {
+            id: 'audio-retry',
+            asset_type: 'audio',
+            original_filename: 'retry.mp3',
+            duration_seconds: 1,
+            size_bytes: '1000',
+            created_at: '2026-09-28',
+            alt_text: '',
+          },
+        ],
+        pagination: { has_more: false },
+      });
+    if (path.endsWith('/content'))
+      return ++attempts === 1
+        ? json({ error: 'Preview unavailable' }, 503)
+        : new Response(new Blob(['audio']));
+  };
+  const interaction = userEvent.setup();
+  open('/media', true);
+  await interaction.selectOptions(
+    await screen.findByLabelText('Media type'),
+    'audio',
+  );
+  await interaction.click(
+    await screen.findByRole('button', { name: 'Preview audio' }),
+  );
+  await screen.findByText('Preview unavailable');
+  await interaction.click(screen.getByRole('button', { name: 'Try again' }));
+  await waitFor(() =>
+    expect(screen.getByLabelText('Audio preview')).toHaveAttribute(
+      'src',
+      'blob:retry',
+    ),
+  );
+});
