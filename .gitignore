@@ -10,3 +10,15 @@ playwright-report/
 
 # Local private media storage
 var/media/
+
+# Production credentials/recovery data must live outside the checkout.
+*.secret
+*.dump
+*.dump.sha256
+production.env
+api.env
+migrate.env
+backup-recovery/
+# Catch future environment variants while keeping placeholder templates.
+.env.*
+!.env.example

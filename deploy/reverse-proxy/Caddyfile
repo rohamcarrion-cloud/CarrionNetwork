@@ -1,0 +1,32 @@
+{
+	email {$ACME_EMAIL}
+	http_port 8080
+	https_port 8443
+	admin 127.0.0.1:2019
+}
+{$SITE_DOMAIN} {
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+	# Deliberately no access log: query strings include private upload filenames.
+	# Caddy operational/TLS logs still go to bounded container stderr.
+	handle_path /api/* {
+		request_body {
+			max_size 100MiB
+		}
+		reverse_proxy api:3010
+	}
+	handle {
+		header {
+			Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+			X-Frame-Options DENY
+			Cache-Control no-cache
+		}
+		root * /srv/studio
+		try_files {path} /index.html
+		file_server
+	}
+}

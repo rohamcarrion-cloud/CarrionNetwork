@@ -1,0 +1,127 @@
+name: carrionnetwork
+x-logging: &logging
+  driver: local
+  options:
+    max-size: '10m'
+    max-file: '5'
+x-app: &app
+  image: ${API_IMAGE:?Set immutable API image digest}
+  user: '1000:1000'
+  read_only: true
+  tmpfs:
+    - /tmp:size=256m,mode=1777
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 128
+  mem_limit: 2g
+  mem_reservation: 512m
+  cpus: 2
+  logging: *logging
+services:
+  proxy:
+    image: ${PROXY_IMAGE:?Set immutable custom proxy image digest}
+    restart: unless-stopped
+    ports: ['80:8080', '443:8443']
+    user: '1000:1000'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:?Set canonical domain}
+      ACME_EMAIL: ${ACME_EMAIL:?Set certificate contact}
+    volumes:
+      - type: bind
+        source: /srv/carrionnetwork/data/caddy
+        target: /data
+        bind: { create_host_path: false }
+      - type: bind
+        source: /srv/carrionnetwork/config/caddy
+        target: /config
+        bind: { create_host_path: false }
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    networks: [edge]
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1:2019/config/']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 64
+    logging: *logging
+  api:
+    <<: *app
+    restart: unless-stopped
+    command: [node, api/src/server.js]
+    env_file: [/srv/carrionnetwork/config/api.env]
+    environment:
+      PORT: '3010'
+      MEDIA_STORAGE_DIR: /media
+      PUBLIC_BASE_URL: https://${SITE_DOMAIN:?Set canonical domain}/api
+      WEB_ORIGIN: https://${SITE_DOMAIN:?Set canonical domain}
+      AUDIO_MAX_UPLOAD_BYTES: '104857600'
+    volumes:
+      - type: bind
+        source: /srv/carrionnetwork/data/media
+        target: /media
+        bind: { create_host_path: false }
+    networks: [edge, database]
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3010/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+  migrate:
+    <<: *app
+    profiles: [tools]
+    command: [node, api/src/migrate.js]
+    env_file: [/srv/carrionnetwork/config/migrate.env]
+    networks: [database]
+    depends_on:
+      postgres: { condition: service_healthy }
+  postgres:
+    image: ${POSTGRES_IMAGE:?Set PostgreSQL 17 immutable image digest}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: carrion_network
+      POSTGRES_USER: carrion_admin
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    secrets: [postgres_admin]
+    volumes:
+      - type: bind
+        source: /srv/carrionnetwork/data/postgres
+        target: /var/lib/postgresql/data
+        bind: { create_host_path: false }
+    networks: [database]
+    security_opt: [no-new-privileges:true]
+    shm_size: 256m
+    mem_limit: 4g
+    mem_reservation: 1g
+    cpus: 1.5
+    pids_limit: 256
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U carrion_admin -d carrion_network']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *logging
+networks:
+  edge: {}
+  database:
+    internal: true
+secrets:
+  postgres_admin:
+    file: /srv/carrionnetwork/config/postgres-admin.secret

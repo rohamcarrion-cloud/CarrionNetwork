@@ -45,14 +45,14 @@ only PostgreSQL. The root `npm run dev` and `npm start` still run only the API.
 
 The environment files above are created only if missing:
 
-| File | Setting | Purpose |
-| --- | --- | --- |
-| `.env` | `DATABASE_URL` | API/application migration connection; keep secret. |
-| `.env` | `MEDIA_STORAGE_DIR` | Private original and representation storage directory, default `./var/media`; back up with the database. |
-| `.env` | `PUBLIC_BASE_URL` | Canonical API delivery base for RSS/artwork/enclosures; HTTPS outside loopback, include `/api` if your public proxy uses it. |
-| `.env` | `PORT` | API port, default 3010. |
-| `.env` | `WEB_ORIGIN` | Exact allowed frontend origin, default `http://localhost:5173`. |
-| `web/.env` | `VITE_API_URL` | Public API base path, default `/api`; never include secrets. |
+| File       | Setting             | Purpose                                                                                                                      |
+| ---------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `.env`     | `DATABASE_URL`      | API/application migration connection; keep secret.                                                                           |
+| `.env`     | `MEDIA_STORAGE_DIR` | Private original and representation storage directory, default `./var/media`; back up with the database.                     |
+| `.env`     | `PUBLIC_BASE_URL`   | Canonical API delivery base for RSS/artwork/enclosures; HTTPS outside loopback, include `/api` if your public proxy uses it. |
+| `.env`     | `PORT`              | API port, default 3010.                                                                                                      |
+| `.env`     | `WEB_ORIGIN`        | Exact allowed frontend origin, default `http://localhost:5173`.                                                              |
+| `web/.env` | `VITE_API_URL`      | Public API base path, default `/api`; never include secrets.                                                                 |
 
 Vite proxies `/api` to `http://127.0.0.1:3010`, so either frontend hostname works
 without CORS configuration changes. If an existing `web/.env` sets an absolute
@@ -224,3 +224,13 @@ that sandbox. Browser connection errors can also indicate a mismatched
 
 See [VERIFICATION](docs/VERIFICATION.md) for recorded results and
 [JESSY_HANDOFF](docs/JESSY_HANDOFF.md) for the implementation sequence.
+
+## Production foundation — Milestone 008A.1
+
+Production is designed for one Hostinger VPS using Caddy, the built Creator Studio,
+Node API and private PostgreSQL. No deployment or VPS configuration occurs here.
+Start with the [security baseline](docs/security/SECURITY_BASELINE.md),
+[deployment artifacts](deploy/README.md), and the human-reviewed
+[008A.2 bootstrap runbook](docs/security/VPS_BOOTSTRAP.md).
+Application launch gaps and recovery acceptance are explicit in the
+[deployment checklist](docs/security/DEPLOYMENT_CHECKLIST.md).
